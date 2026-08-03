@@ -88,7 +88,7 @@ class MetronomeViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun adjustBpm(direction: Int) {
         val state = _uiState.value
-        setBpm(state.bpm + direction * state.step)
+        setBpm(state.bpm + direction.coerceIn(-1, 1))
     }
 
     fun setStep(step: Int) {

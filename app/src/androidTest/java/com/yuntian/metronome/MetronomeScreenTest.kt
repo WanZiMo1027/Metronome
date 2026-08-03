@@ -27,9 +27,9 @@ class MetronomeScreenTest {
         setScreen(onTogglePlayback = { toggles += 1 })
 
         composeRule.onNodeWithText("120").assertIsDisplayed()
-        composeRule.onNodeWithText("准备就绪 · READY").assertIsDisplayed()
+        composeRule.onNodeWithText("准备就绪").assertIsDisplayed()
         composeRule.onNodeWithTag("bpm_slider").assertIsDisplayed()
-        composeRule.onNodeWithText("开始  START").performClick()
+        composeRule.onNodeWithText("开始").performClick()
 
         assertEquals(1, toggles)
     }
@@ -57,7 +57,7 @@ class MetronomeScreenTest {
             ),
         )
 
-        composeRule.onNodeWithText("当前第 3 拍 · BEAT 3").assertIsDisplayed()
+        composeRule.onNodeWithText("当前第 3 拍").assertIsDisplayed()
         composeRule.onNodeWithTag("pending_signature")
             .assertTextEquals("4/4 正在播放 · 3/4 下一小节生效")
         composeRule.onNodeWithContentDescription("第一拍重音").assertIsDisplayed()
@@ -74,7 +74,6 @@ class MetronomeScreenTest {
                     onTogglePlayback = onTogglePlayback,
                     onSetBpm = {},
                     onAdjustBpm = {},
-                    onSetStep = {},
                     onSetTimeSignature = {},
                     onSetAccentEnabled = {},
                     onConsumeError = {},

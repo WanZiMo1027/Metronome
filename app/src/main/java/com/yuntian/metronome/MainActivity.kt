@@ -7,12 +7,29 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsBottomHeight
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
 import androidx.compose.runtime.Composable
@@ -23,7 +40,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.PreviewScreenSizes
 import androidx.compose.ui.unit.dp
@@ -67,78 +90,169 @@ fun MetronomeApp(viewModel: MetronomeViewModel? = null) {
     var currentDestination by rememberSaveable { mutableStateOf(AppDestination.METRONOME) }
     val state by viewModel?.uiState?.collectAsStateWithLifecycle()
         ?: remember { mutableStateOf(MetronomeUiState()) }
+    val selectDestination: (AppDestination) -> Unit = { destination ->
+        if (destination != AppDestination.METRONOME) viewModel?.stop()
+        currentDestination = destination
+    }
 
-    NavigationSuiteScaffold(
-        navigationSuiteItems = {
-            AppDestination.entries.forEach { destination ->
-                item(
-                    icon = {
-                        Icon(
-                            painter = painterResource(destination.icon),
-                            contentDescription = destination.contentDescription,
-                        )
-                    },
-                    label = {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = destination.chineseLabel,
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 11.sp,
-                            )
-                            Text(text = destination.englishLabel, fontSize = 9.sp)
-                        }
-                    },
-                    selected = destination == currentDestination,
-                    onClick = {
-                        if (destination != AppDestination.METRONOME) viewModel?.stop()
-                        currentDestination = destination
-                    },
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        if (maxWidth < 600.dp) {
+            Scaffold(
+                modifier = Modifier.fillMaxSize(),
+                containerColor = MaterialTheme.colorScheme.background,
+                bottomBar = {
+                    CompactNavigationBar(
+                        selected = currentDestination,
+                        onSelect = selectDestination,
+                    )
+                },
+            ) { contentPadding ->
+                DestinationContent(
+                    destination = currentDestination,
+                    state = state,
+                    viewModel = viewModel,
+                    modifier = Modifier.padding(contentPadding),
                 )
             }
-        },
-    ) {
-        when (currentDestination) {
-            AppDestination.METRONOME -> MetronomeScreen(
-                state = state,
-                onTogglePlayback = { viewModel?.togglePlayback() },
-                onSetBpm = { viewModel?.setBpm(it) },
-                onAdjustBpm = { viewModel?.adjustBpm(it) },
-                onSetStep = { viewModel?.setStep(it) },
-                onSetTimeSignature = { viewModel?.setTimeSignature(it) },
-                onSetAccentEnabled = { viewModel?.setAccentEnabled(it) },
-                onConsumeError = { viewModel?.consumeError() },
-                onRetryAudio = { viewModel?.start() },
-                modifier = Modifier,
-            )
-
-            AppDestination.FAVORITES -> ComingSoonScreen(
-                title = "收藏",
-                englishTitle = "FAVORITES",
-                modifier = Modifier,
-            )
-
-            AppDestination.PROFILE -> ComingSoonScreen(
-                title = "我的",
-                englishTitle = "PROFILE",
-                modifier = Modifier,
-            )
+        } else {
+            NavigationSuiteScaffold(
+                navigationSuiteItems = {
+                    AppDestination.entries.forEach { destination ->
+                        item(
+                            icon = {
+                                Icon(
+                                    painter = painterResource(destination.icon),
+                                    contentDescription = destination.contentDescription,
+                                )
+                            },
+                            label = { NavigationLabel(destination) },
+                            selected = destination == currentDestination,
+                            onClick = { selectDestination(destination) },
+                        )
+                    }
+                },
+            ) {
+                DestinationContent(
+                    destination = currentDestination,
+                    state = state,
+                    viewModel = viewModel,
+                )
+            }
         }
+    }
+}
+
+@Composable
+private fun CompactNavigationBar(
+    selected: AppDestination,
+    onSelect: (AppDestination) -> Unit,
+) {
+    Surface(color = MaterialTheme.colorScheme.surface) {
+        Column {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+            ) {
+                AppDestination.entries.forEach { destination ->
+                    val isSelected = destination == selected
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxSize()
+                            .clickable(role = Role.Tab) { onSelect(destination) }
+                            .semantics {
+                                contentDescription = destination.contentDescription
+                                stateDescription = if (isSelected) "已选择" else "未选择"
+                            }
+                            .padding(vertical = 3.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .width(50.dp)
+                                .height(27.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(
+                                    if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+                                    else Color.Transparent,
+                                ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                painter = painterResource(destination.icon),
+                                contentDescription = null,
+                                tint = if (isSelected) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
+                        NavigationLabel(destination, compact = true)
+                    }
+                }
+            }
+            Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
+        }
+    }
+}
+
+@Composable
+private fun NavigationLabel(destination: AppDestination, compact: Boolean = false) {
+    Text(
+        text = destination.chineseLabel,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = if (compact) 10.sp else 12.sp,
+        lineHeight = if (compact) 12.sp else 14.sp,
+        maxLines = 1,
+    )
+}
+
+@Composable
+private fun DestinationContent(
+    destination: AppDestination,
+    state: MetronomeUiState,
+    viewModel: MetronomeViewModel?,
+    modifier: Modifier = Modifier,
+) {
+    when (destination) {
+        AppDestination.METRONOME -> MetronomeScreen(
+            state = state,
+            onTogglePlayback = { viewModel?.togglePlayback() },
+            onSetBpm = { viewModel?.setBpm(it) },
+            onAdjustBpm = { viewModel?.adjustBpm(it) },
+            onSetTimeSignature = { viewModel?.setTimeSignature(it) },
+            onSetAccentEnabled = { viewModel?.setAccentEnabled(it) },
+            onConsumeError = { viewModel?.consumeError() },
+            onRetryAudio = { viewModel?.start() },
+            modifier = modifier,
+        )
+
+        AppDestination.FAVORITES -> ComingSoonScreen(
+            title = "收藏",
+            modifier = modifier,
+        )
+
+        AppDestination.PROFILE -> ComingSoonScreen(
+            title = "我的",
+            modifier = modifier,
+        )
     }
 }
 
 private enum class AppDestination(
     val chineseLabel: String,
-    val englishLabel: String,
     val contentDescription: String,
     val icon: Int,
 ) {
-    METRONOME("节拍器", "Metronome", "节拍器 Metronome", R.drawable.ic_home),
-    FAVORITES("收藏", "Favorites", "收藏 Favorites", R.drawable.ic_favorite),
-    PROFILE("我的", "Profile", "我的 Profile", R.drawable.ic_account_box),
+    METRONOME("节拍器", "节拍器", R.drawable.ic_home),
+    FAVORITES("收藏", "收藏", R.drawable.ic_favorite),
+    PROFILE("我的", "我的", R.drawable.ic_account_box),
 }
 
 @Composable
-private fun ComingSoonScreen(title: String, englishTitle: String, modifier: Modifier = Modifier) {
+private fun ComingSoonScreen(title: String, modifier: Modifier = Modifier) {
     Column(
         modifier = modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -150,10 +264,9 @@ private fun ComingSoonScreen(title: String, englishTitle: String, modifier: Modi
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(Modifier.weight(1f))
-            Text(text = englishTitle, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
             Text(text = title, style = MaterialTheme.typography.headlineSmall)
             Text(
-                text = "即将推出 · Coming soon",
+                text = "即将推出",
                 modifier = Modifier.padding(top = 12.dp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

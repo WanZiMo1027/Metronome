@@ -81,7 +81,6 @@ fun MetronomeScreen(
     onTogglePlayback: () -> Unit,
     onSetBpm: (Int) -> Unit,
     onAdjustBpm: (Int) -> Unit,
-    onSetStep: (Int) -> Unit,
     onSetTimeSignature: (TimeSignature) -> Unit,
     onSetAccentEnabled: (Boolean) -> Unit,
     onConsumeError: () -> Unit,
@@ -131,6 +130,7 @@ fun MetronomeScreen(
                     bpm = state.bpm,
                     isPlaying = state.isPlaying,
                     onClick = { showBpmDialog = true },
+                    onAdjustBpm = onAdjustBpm,
                 )
             }
             item {
@@ -144,10 +144,7 @@ fun MetronomeScreen(
             item {
                 TempoControls(
                     bpm = state.bpm,
-                    step = state.step,
                     onSetBpm = onSetBpm,
-                    onAdjustBpm = onAdjustBpm,
-                    onSetStep = onSetStep,
                 )
             }
             item {
@@ -181,42 +178,64 @@ fun MetronomeScreen(
 
 @Composable
 private fun Header() {
-    Column {
-        Text(
-            text = "PRECISION PRACTICE",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.primary,
-        )
+    Box(
+        modifier = Modifier.fillMaxWidth(),
+        contentAlignment = Alignment.Center,
+    ) {
         Text(
             text = "节拍器",
             style = MaterialTheme.typography.headlineSmall,
-            modifier = Modifier.padding(top = 2.dp),
         )
     }
 }
 
 @Composable
-private fun BpmDisplay(bpm: Int, isPlaying: Boolean, onClick: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .clickable(role = Role.Button, onClick = onClick)
-            .semantics { contentDescription = "当前速度 $bpm BPM，点击手动输入" }
-            .testTag("bpm_display")
-            .padding(vertical = 8.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+private fun BpmDisplay(
+    bpm: Int,
+    isPlaying: Boolean,
+    onClick: () -> Unit,
+    onAdjustBpm: (Int) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = bpm.toString(),
-            style = MaterialTheme.typography.displayLarge,
-            color = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground,
-            maxLines = 1,
+        HoldRepeatButton(
+            label = "每分钟拍数减 1",
+            symbol = "−",
+            enabled = bpm > MIN_BPM,
+            onTrigger = { onAdjustBpm(-1) },
+            size = 52,
         )
-        Text(
-            text = "每分钟拍数 · BPM",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .clip(RoundedCornerShape(20.dp))
+                .clickable(role = Role.Button, onClick = onClick)
+                .semantics { contentDescription = "当前每分钟 $bpm 拍，点击手动输入" }
+                .testTag("bpm_display")
+                .padding(vertical = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                text = bpm.toString(),
+                style = MaterialTheme.typography.displayLarge,
+                color = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground,
+                maxLines = 1,
+            )
+            Text(
+                text = "每分钟拍数",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        HoldRepeatButton(
+            label = "每分钟拍数加 1",
+            symbol = "+",
+            enabled = bpm < MAX_BPM,
+            onTrigger = { onAdjustBpm(1) },
+            size = 52,
         )
     }
 }
@@ -240,8 +259,8 @@ private fun BeatLane(
         ) {
             Text(
                 text = when {
-                    isPlaying && currentBeat != null -> "当前第 $currentBeat 拍 · BEAT $currentBeat"
-                    else -> "准备就绪 · READY"
+                    isPlaying && currentBeat != null -> "当前第 $currentBeat 拍"
+                    else -> "准备就绪"
                 },
                 style = MaterialTheme.typography.titleMedium,
             )
@@ -300,13 +319,10 @@ private fun BeatDot(beat: Int, active: Boolean, accent: Boolean) {
 @Composable
 private fun TempoControls(
     bpm: Int,
-    step: Int,
     onSetBpm: (Int) -> Unit,
-    onAdjustBpm: (Int) -> Unit,
-    onSetStep: (Int) -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        SectionLabel(chinese = "速度调节", english = "TEMPO")
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SectionLabel("速度调节")
         Slider(
             value = bpm.toFloat(),
             onValueChange = { onSetBpm(it.roundToInt()) },
@@ -314,28 +330,9 @@ private fun TempoControls(
             steps = MAX_BPM - MIN_BPM - 1,
             modifier = Modifier
                 .fillMaxWidth()
-                .semantics { contentDescription = "BPM 滑块，当前 $bpm" }
+                .semantics { contentDescription = "速度滑块，当前每分钟 $bpm 拍" }
                 .testTag("bpm_slider"),
         )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            HoldRepeatButton(
-                label = "减 $step BPM",
-                symbol = "−",
-                enabled = bpm > MIN_BPM,
-                onTrigger = { onAdjustBpm(-1) },
-            )
-            StepSelector(step = step, onSetStep = onSetStep)
-            HoldRepeatButton(
-                label = "加 $step BPM",
-                symbol = "+",
-                enabled = bpm < MAX_BPM,
-                onTrigger = { onAdjustBpm(1) },
-            )
-        }
     }
 }
 
@@ -345,6 +342,7 @@ private fun HoldRepeatButton(
     symbol: String,
     enabled: Boolean,
     onTrigger: () -> Unit,
+    size: Int = 64,
 ) {
     var pressed by remember { mutableStateOf(false) }
     val latestTrigger by rememberUpdatedState(onTrigger)
@@ -353,7 +351,7 @@ private fun HoldRepeatButton(
 
     Surface(
         modifier = Modifier
-            .size(64.dp)
+            .size(size.dp)
             .scale(scale)
             .semantics {
                 role = Role.Button
@@ -397,27 +395,7 @@ private fun HoldRepeatButton(
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
     ) {
         Box(contentAlignment = Alignment.Center) {
-            Text(text = symbol, fontSize = 32.sp, fontWeight = FontWeight.Light)
-        }
-    }
-}
-
-@Composable
-private fun StepSelector(step: Int, onSetStep: (Int) -> Unit) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(text = "步长 · STEP", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Row(
-            modifier = Modifier.padding(top = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            listOf(1, 5).forEach { option ->
-                ChoicePill(
-                    text = "±$option",
-                    selected = step == option,
-                    onClick = { onSetStep(option) },
-                    contentDescription = "步长 $option BPM",
-                )
-            }
+            Text(text = symbol, fontSize = 28.sp, fontWeight = FontWeight.Light)
         }
     }
 }
@@ -430,7 +408,7 @@ private fun SignatureSection(
     onSelect: (TimeSignature) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SectionLabel(chinese = "拍号", english = "TIME SIGNATURE")
+        SectionLabel("拍号")
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -504,7 +482,7 @@ private fun AccentControl(checked: Boolean, onCheckedChange: (Boolean) -> Unit) 
             Column(modifier = Modifier.weight(1f)) {
                 Text(text = "第一拍重音", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    text = "ACCENT · 咚 / 哒",
+                    text = "咚 / 哒",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 3.dp),
@@ -520,15 +498,8 @@ private fun AccentControl(checked: Boolean, onCheckedChange: (Boolean) -> Unit) 
 }
 
 @Composable
-private fun SectionLabel(chinese: String, english: String) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(text = chinese, style = MaterialTheme.typography.titleMedium)
-        Text(
-            text = "  $english",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
+private fun SectionLabel(text: String) {
+    Text(text = text, style = MaterialTheme.typography.titleMedium)
 }
 
 @Composable
@@ -550,7 +521,7 @@ private fun StartStopBar(isPlaying: Boolean, onClick: () -> Unit) {
                 ),
             ) {
                 Text(
-                    text = if (isPlaying) "停止  STOP" else "开始  START",
+                    text = if (isPlaying) "停止" else "开始",
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 1.5.sp,
                 )
@@ -574,7 +545,7 @@ private fun BpmInputDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("输入 BPM") },
+        title = { Text("输入速度") },
         text = {
             OutlinedTextField(
                 value = input,
@@ -584,7 +555,7 @@ private fun BpmInputDialog(
                         showError = false
                     }
                 },
-                label = { Text("30–300 BPM") },
+                label = { Text("每分钟 30–300 拍") },
                 singleLine = true,
                 isError = showError,
                 supportingText = if (showError) {
