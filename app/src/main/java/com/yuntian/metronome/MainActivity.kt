@@ -223,6 +223,7 @@ private fun DestinationContent(
             onSetBpm = { viewModel?.setBpm(it) },
             onAdjustBpm = { viewModel?.adjustBpm(it) },
             onSetTimeSignature = { viewModel?.setTimeSignature(it) },
+            onSetSubdivision = { viewModel?.setSubdivision(it) },
             onSetAccentEnabled = { viewModel?.setAccentEnabled(it) },
             onConsumeError = { viewModel?.consumeError() },
             onRetryAudio = { viewModel?.start() },

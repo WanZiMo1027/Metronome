@@ -20,6 +20,7 @@ class MetronomeViewModel(application: Application) : AndroidViewModel(applicatio
             bpm = initialSettings.bpm,
             step = initialSettings.step,
             activeTimeSignature = initialSettings.timeSignature,
+            activeSubdivision = initialSettings.subdivision,
             accentEnabled = initialSettings.accentEnabled,
         ),
     )
@@ -36,15 +37,19 @@ class MetronomeViewModel(application: Application) : AndroidViewModel(applicatio
         val generation = ++playbackGeneration
         val started = engine.start(
             settings = _uiState.value.playbackSettings(),
-            onBeat = { event ->
+            onPulse = { event ->
                 viewModelScope.launch {
                     if (generation != playbackGeneration || !_uiState.value.isPlaying) return@launch
                     _uiState.update { state ->
                         state.copy(
                             currentBeat = event.beat,
+                            currentSubdivisionIndex = event.subdivisionIndex,
                             activeTimeSignature = event.timeSignature,
+                            activeSubdivision = event.subdivision,
                             pendingTimeSignature = state.pendingTimeSignature
                                 ?.takeUnless { it == event.timeSignature },
+                            pendingSubdivision = state.pendingSubdivision
+                                ?.takeUnless { it == event.subdivision },
                         )
                     }
                 }
@@ -57,6 +62,7 @@ class MetronomeViewModel(application: Application) : AndroidViewModel(applicatio
                         state.copy(
                             isPlaying = false,
                             currentBeat = null,
+                            currentSubdivisionIndex = null,
                             errorMessage = "音频初始化失败，请重试",
                         )
                     }
@@ -64,7 +70,14 @@ class MetronomeViewModel(application: Application) : AndroidViewModel(applicatio
             },
         )
         if (started) {
-            _uiState.update { it.copy(isPlaying = true, currentBeat = null, errorMessage = null) }
+            _uiState.update {
+                it.copy(
+                    isPlaying = true,
+                    currentBeat = null,
+                    currentSubdivisionIndex = null,
+                    errorMessage = null,
+                )
+            }
         }
     }
 
@@ -75,8 +88,11 @@ class MetronomeViewModel(application: Application) : AndroidViewModel(applicatio
             state.copy(
                 isPlaying = false,
                 currentBeat = null,
+                currentSubdivisionIndex = null,
                 activeTimeSignature = state.selectedTimeSignature,
                 pendingTimeSignature = null,
+                activeSubdivision = state.selectedSubdivision,
+                pendingSubdivision = null,
             )
         }
     }
@@ -109,6 +125,25 @@ class MetronomeViewModel(application: Application) : AndroidViewModel(applicatio
                     activeTimeSignature = timeSignature,
                     pendingTimeSignature = null,
                     currentBeat = null,
+                )
+            }
+        }
+        settingsChanged()
+    }
+
+    fun setSubdivision(subdivision: Subdivision) {
+        _uiState.update { state ->
+            if (state.isPlaying) {
+                state.copy(
+                    pendingSubdivision = subdivision.takeUnless {
+                        it == state.activeSubdivision
+                    },
+                )
+            } else {
+                state.copy(
+                    activeSubdivision = subdivision,
+                    pendingSubdivision = null,
+                    currentSubdivisionIndex = null,
                 )
             }
         }

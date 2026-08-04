@@ -22,7 +22,7 @@ class AndroidMetronomeEngineTest {
         try {
             val started = engine.start(
                 settings = MetronomeSettings(bpm = 300),
-                onBeat = { beats.countDown() },
+                onPulse = { beats.countDown() },
                 onError = { failure.set(it) },
             )
 

@@ -17,7 +17,7 @@ import kotlin.math.sin
 interface MetronomeEngine {
     fun start(
         settings: MetronomeSettings,
-        onBeat: (BeatEvent) -> Unit,
+        onPulse: (PulseEvent) -> Unit,
         onError: (Throwable) -> Unit,
     ): Boolean
 
@@ -39,7 +39,7 @@ class AndroidMetronomeEngine : MetronomeEngine {
     @Synchronized
     override fun start(
         settings: MetronomeSettings,
-        onBeat: (BeatEvent) -> Unit,
+        onPulse: (PulseEvent) -> Unit,
         onError: (Throwable) -> Unit,
     ): Boolean {
         if (running) return true
@@ -56,7 +56,7 @@ class AndroidMetronomeEngine : MetronomeEngine {
         running = true
         workerThread = Thread(
             {
-                runScheduler(clickOutput, onBeat, onError)
+                runScheduler(clickOutput, onPulse, onError)
             },
             "MetronomeAudioScheduler",
         ).apply { start() }
@@ -91,23 +91,36 @@ class AndroidMetronomeEngine : MetronomeEngine {
 
     private fun runScheduler(
         clickOutput: AudioTrackClickOutput,
-        onBeat: (BeatEvent) -> Unit,
+        onPulse: (PulseEvent) -> Unit,
         onError: (Throwable) -> Unit,
     ) {
         try {
             Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO)
-            val sequencer = BeatSequencer(settings.timeSignature)
+            val sequencer = PulseSequencer(
+                initialSignature = settings.timeSignature,
+                initialSubdivision = settings.subdivision,
+            )
             var lastScheduledAt = System.nanoTime()
-            emitBeat(sequencer, lastScheduledAt, clickOutput, onBeat)
+            var currentEvent = emitPulse(sequencer, lastScheduledAt, clickOutput, onPulse)
 
             while (running) {
                 val snapshot = settings
-                val requestedDeadline = MetronomeTiming.nextDeadlineNanos(lastScheduledAt, snapshot.bpm)
+                val requestedDeadline = MetronomeTiming.nextDeadlineNanos(
+                    lastScheduledAtNanos = lastScheduledAt,
+                    bpm = snapshot.bpm,
+                    subdivision = currentEvent.subdivision,
+                    stepIndex = currentEvent.subdivisionIndex,
+                )
                 if (!waitUntil(requestedDeadline)) continue
                 if (!running) break
 
                 val latest = settings
-                val latestDeadline = MetronomeTiming.nextDeadlineNanos(lastScheduledAt, latest.bpm)
+                val latestDeadline = MetronomeTiming.nextDeadlineNanos(
+                    lastScheduledAtNanos = lastScheduledAt,
+                    bpm = latest.bpm,
+                    subdivision = currentEvent.subdivision,
+                    stepIndex = currentEvent.subdivisionIndex,
+                )
                 val now = System.nanoTime()
 
                 // A slower tempo selected while waiting moves the next beat later.
@@ -118,8 +131,10 @@ class AndroidMetronomeEngine : MetronomeEngine {
                     lastScheduledAtNanos = lastScheduledAt,
                     nowNanos = now,
                     bpm = latest.bpm,
+                    subdivision = currentEvent.subdivision,
+                    stepIndex = currentEvent.subdivisionIndex,
                 )
-                emitBeat(sequencer, scheduledAt, clickOutput, onBeat)
+                currentEvent = emitPulse(sequencer, scheduledAt, clickOutput, onPulse)
                 lastScheduledAt = scheduledAt
             }
         } catch (_: InterruptedException) {
@@ -138,21 +153,24 @@ class AndroidMetronomeEngine : MetronomeEngine {
         }
     }
 
-    private fun emitBeat(
-        sequencer: BeatSequencer,
+    private fun emitPulse(
+        sequencer: PulseSequencer,
         scheduledAtNanos: Long,
         clickOutput: AudioTrackClickOutput,
-        onBeat: (BeatEvent) -> Unit,
-    ) {
-        if (!running) return
+        onPulse: (PulseEvent) -> Unit,
+    ): PulseEvent {
         val latest = settings
         val event = sequencer.next(
             requestedSignature = latest.timeSignature,
+            requestedSubdivision = latest.subdivision,
             accentEnabled = latest.accentEnabled,
             scheduledAtNanos = scheduledAtNanos,
         )
-        clickOutput.play(event.isAccent)
-        onBeat(event)
+        if (running) {
+            clickOutput.play(event.accentLevel)
+            onPulse(event)
+        }
+        return event
     }
 
     private fun waitUntil(deadlineNanos: Long): Boolean {
@@ -175,16 +193,27 @@ class AndroidMetronomeEngine : MetronomeEngine {
 private class AudioTrackClickOutput : Closeable {
     private val sampleRate = AudioTrack.getNativeOutputSampleRate(AudioManager.STREAM_MUSIC)
         .coerceAtLeast(22_050)
-    private val accentTrack = buildTrack(createClick(frequency = 340.0, durationMs = 72, strength = 0.88))
-    private val regularTrack = try {
-        buildTrack(createClick(frequency = 1_080.0, durationMs = 34, strength = 0.72))
+    private val downbeatTrack = buildTrack(createDownbeatClick())
+    private val beatTrack = try {
+        buildTrack(createClick(frequency = 780.0, durationMs = 30, strength = 0.70))
     } catch (error: Throwable) {
-        accentTrack.track.release()
+        downbeatTrack.track.release()
+        throw error
+    }
+    private val subdivisionTrack = try {
+        buildTrack(createClick(frequency = 1_080.0, durationMs = 18, strength = 0.48))
+    } catch (error: Throwable) {
+        downbeatTrack.track.release()
+        beatTrack.track.release()
         throw error
     }
 
-    fun play(accent: Boolean) {
-        val click = if (accent) accentTrack else regularTrack
+    fun play(accentLevel: AccentLevel) {
+        val click = when (accentLevel) {
+            AccentLevel.DOWNBEAT -> downbeatTrack
+            AccentLevel.BEAT -> beatTrack
+            AccentLevel.SUBDIVISION -> subdivisionTrack
+        }
         val track = click.track
         if (track.playState == AudioTrack.PLAYSTATE_PLAYING) track.pause()
         track.flush()
@@ -194,7 +223,7 @@ private class AudioTrackClickOutput : Closeable {
     }
 
     override fun close() {
-        listOf(accentTrack.track, regularTrack.track).forEach { track ->
+        listOf(downbeatTrack.track, beatTrack.track, subdivisionTrack.track).forEach { track ->
             runCatching {
                 if (track.playState == AudioTrack.PLAYSTATE_PLAYING) track.stop()
             }
@@ -247,6 +276,28 @@ private class AudioTrackClickOutput : Closeable {
             val fundamental = sin(2.0 * PI * frequency * seconds)
             val harmonic = 0.22 * sin(2.0 * PI * frequency * 2.0 * seconds)
             ((fundamental + harmonic) * envelope * strength * Short.MAX_VALUE)
+                .roundToInt()
+                .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
+                .toShort()
+        }
+    }
+
+    private fun createDownbeatClick(): ShortArray {
+        val durationMs = 28
+        val sampleCount = (sampleRate * durationMs / 1_000.0).roundToInt()
+        return ShortArray(sampleCount) { index ->
+            val seconds = index.toDouble() / sampleRate
+            val progress = index.toDouble() / sampleCount
+
+            // A short bright transient makes the beat feel immediate; the low body adds weight.
+            val bodyEnvelope = exp(-10.0 * progress)
+            val transientEnvelope = exp(-38.0 * progress)
+            val lowBody = 0.86 * sin(2.0 * PI * 220.0 * seconds)
+            val lowHarmonic = 0.42 * sin(2.0 * PI * 440.0 * seconds)
+            val transient = 0.72 * sin(2.0 * PI * 2_200.0 * seconds)
+            val sample = (lowBody + lowHarmonic) * bodyEnvelope + transient * transientEnvelope
+
+            (sample * 0.96 * Short.MAX_VALUE)
                 .roundToInt()
                 .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
                 .toShort()

@@ -1,11 +1,7 @@
 package com.yuntian.metronome.ui
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -68,6 +64,7 @@ import androidx.compose.ui.unit.sp
 import com.yuntian.metronome.metronome.MAX_BPM
 import com.yuntian.metronome.metronome.MIN_BPM
 import com.yuntian.metronome.metronome.MetronomeUiState
+import com.yuntian.metronome.metronome.Subdivision
 import com.yuntian.metronome.metronome.TimeSignature
 import com.yuntian.metronome.metronome.parseBpmInput
 import kotlinx.coroutines.delay
@@ -82,6 +79,7 @@ fun MetronomeScreen(
     onSetBpm: (Int) -> Unit,
     onAdjustBpm: (Int) -> Unit,
     onSetTimeSignature: (TimeSignature) -> Unit,
+    onSetSubdivision: (Subdivision) -> Unit,
     onSetAccentEnabled: (Boolean) -> Unit,
     onConsumeError: () -> Unit,
     onRetryAudio: () -> Unit,
@@ -115,7 +113,8 @@ fun MetronomeScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(contentPadding),
+                .padding(contentPadding)
+                .testTag("metronome_content"),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(
                 start = 24.dp,
                 end = 24.dp,
@@ -136,8 +135,12 @@ fun MetronomeScreen(
             item {
                 BeatLane(
                     currentBeat = state.currentBeat,
+                    currentSubdivisionIndex = state.currentSubdivisionIndex,
                     timeSignature = state.activeTimeSignature,
-                    accentEnabled = state.accentEnabled,
+                    subdivision = state.activeSubdivision,
+                    selectedSubdivision = state.selectedSubdivision,
+                    pendingSubdivision = state.pendingSubdivision,
+                    onSelectSubdivision = onSetSubdivision,
                     isPlaying = state.isPlaying,
                 )
             }
@@ -237,82 +240,6 @@ private fun BpmDisplay(
             onTrigger = { onAdjustBpm(1) },
             size = 52,
         )
-    }
-}
-
-@Composable
-private fun BeatLane(
-    currentBeat: Int?,
-    timeSignature: TimeSignature,
-    accentEnabled: Boolean,
-    isPlaying: Boolean,
-) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.surface,
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(
-                text = when {
-                    isPlaying && currentBeat != null -> "当前第 $currentBeat 拍"
-                    else -> "准备就绪"
-                },
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 18.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                repeat(timeSignature.beatsPerMeasure) { index ->
-                    val beat = index + 1
-                    BeatDot(
-                        beat = beat,
-                        active = isPlaying && currentBeat == beat,
-                        accent = accentEnabled && beat == 1,
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun BeatDot(beat: Int, active: Boolean, accent: Boolean) {
-    val size by animateDpAsState(if (active) 52.dp else 42.dp, label = "beatSize")
-    val fill by animateColorAsState(
-        targetValue = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-        label = "beatColor",
-    )
-    val textColor = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
-    Box(
-        modifier = Modifier
-            .size(size)
-            .clip(CircleShape)
-            .background(fill)
-            .border(
-                width = if (accent) 2.dp else 1.dp,
-                color = if (accent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                shape = CircleShape,
-            )
-            .semantics {
-                stateDescription = when {
-                    active && accent -> "第 $beat 拍，当前重音拍"
-                    active -> "第 $beat 拍，当前拍"
-                    accent -> "第 $beat 拍，重音位置"
-                    else -> "第 $beat 拍"
-                }
-            },
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(text = beat.toString(), color = textColor, fontWeight = FontWeight.Bold)
     }
 }
 
