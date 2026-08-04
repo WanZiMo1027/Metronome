@@ -10,6 +10,10 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeLeft
+import androidx.compose.ui.test.swipeUp
+import com.yuntian.metronome.metronome.PlaybackMode
 import com.yuntian.metronome.metronome.MetronomeUiState
 import com.yuntian.metronome.metronome.Subdivision
 import com.yuntian.metronome.metronome.TimeSignature
@@ -100,10 +104,76 @@ class MetronomeScreenTest {
         composeRule.onNodeWithTag("beat_1_subdivision_2").assertIsDisplayed()
     }
 
+    @Test
+    fun swipingBeatCardSelectsCustomMode() {
+        var selectedMode = PlaybackMode.PRESET
+        setScreen(onSetPlaybackMode = { selectedMode = it })
+
+        composeRule.onNodeWithTag("beat_card_pager").performTouchInput { swipeLeft() }
+        composeRule.waitForIdle()
+
+        assertEquals(PlaybackMode.CUSTOM, selectedMode)
+        composeRule.onNodeWithTag("beat_card_page_custom").assertIsDisplayed()
+    }
+
+    @Test
+    fun customModeHidesLegacyAccentSwitch() {
+        setScreen(
+            state = MetronomeUiState(
+                playbackMode = PlaybackMode.CUSTOM,
+                activePlaybackMode = PlaybackMode.CUSTOM,
+            ),
+        )
+
+        composeRule.onNodeWithContentDescription("第一拍重音").assertDoesNotExist()
+    }
+
+    @Test
+    fun customCellCanBeClickedAndColumnSwipeRequestsNextDivisionCount() {
+        var clicked: Pair<Int, Int>? = null
+        var resized: Pair<Int, Int>? = null
+        setScreen(
+            state = MetronomeUiState(
+                playbackMode = PlaybackMode.CUSTOM,
+                activePlaybackMode = PlaybackMode.CUSTOM,
+            ),
+            onCycleCustomCell = { beat, cell -> clicked = beat to cell },
+            onSetCustomBeatDivisions = { beat, divisions -> resized = beat to divisions },
+        )
+
+        composeRule.onNodeWithTag("custom_cell_1_1").performClick()
+        assertEquals(0 to 0, clicked)
+
+        composeRule.onNodeWithTag("custom_beat_column_1").performTouchInput { swipeUp() }
+        assertEquals(0 to 2, resized)
+    }
+
+    @Test
+    fun customPresetCanBeNamedAndSaved() {
+        var savedName: String? = null
+        setScreen(
+            state = MetronomeUiState(
+                playbackMode = PlaybackMode.CUSTOM,
+                activePlaybackMode = PlaybackMode.CUSTOM,
+            ),
+            onSaveCustomPreset = { savedName = it },
+        )
+
+        composeRule.onNodeWithTag("custom_save_button").performClick()
+        composeRule.onNodeWithTag("custom_preset_name").performTextInput("练习节奏")
+        composeRule.onNodeWithTag("custom_preset_save_confirm").performClick()
+
+        assertEquals("练习节奏", savedName)
+    }
+
     private fun setScreen(
         state: MetronomeUiState = MetronomeUiState(),
         onTogglePlayback: () -> Unit = {},
         onSetSubdivision: (Subdivision) -> Unit = {},
+        onSetPlaybackMode: (PlaybackMode) -> Unit = {},
+        onSetCustomBeatDivisions: (Int, Int) -> Unit = { _, _ -> },
+        onCycleCustomCell: (Int, Int) -> Unit = { _, _ -> },
+        onSaveCustomPreset: (String) -> Unit = {},
     ) {
         composeRule.setContent {
             MetronomeTheme {
@@ -115,6 +185,12 @@ class MetronomeScreenTest {
                     onSetTimeSignature = {},
                     onSetSubdivision = onSetSubdivision,
                     onSetAccentEnabled = {},
+                    onSetPlaybackMode = onSetPlaybackMode,
+                    onSetCustomBeatDivisions = onSetCustomBeatDivisions,
+                    onCycleCustomCell = onCycleCustomCell,
+                    onSaveCustomPreset = onSaveCustomPreset,
+                    onApplyCustomPreset = {},
+                    onDeleteCustomPreset = {},
                     onConsumeError = {},
                     onRetryAudio = {},
                 )

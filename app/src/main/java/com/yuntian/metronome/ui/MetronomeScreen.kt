@@ -64,6 +64,7 @@ import androidx.compose.ui.unit.sp
 import com.yuntian.metronome.metronome.MAX_BPM
 import com.yuntian.metronome.metronome.MIN_BPM
 import com.yuntian.metronome.metronome.MetronomeUiState
+import com.yuntian.metronome.metronome.PlaybackMode
 import com.yuntian.metronome.metronome.Subdivision
 import com.yuntian.metronome.metronome.TimeSignature
 import com.yuntian.metronome.metronome.parseBpmInput
@@ -81,6 +82,12 @@ fun MetronomeScreen(
     onSetTimeSignature: (TimeSignature) -> Unit,
     onSetSubdivision: (Subdivision) -> Unit,
     onSetAccentEnabled: (Boolean) -> Unit,
+    onSetPlaybackMode: (PlaybackMode) -> Unit,
+    onSetCustomBeatDivisions: (Int, Int) -> Unit,
+    onCycleCustomCell: (Int, Int) -> Unit,
+    onSaveCustomPreset: (String) -> Unit,
+    onApplyCustomPreset: (String) -> Unit,
+    onDeleteCustomPreset: (String) -> Unit,
     onConsumeError: () -> Unit,
     onRetryAudio: () -> Unit,
     modifier: Modifier = Modifier,
@@ -133,15 +140,15 @@ fun MetronomeScreen(
                 )
             }
             item {
-                BeatLane(
-                    currentBeat = state.currentBeat,
-                    currentSubdivisionIndex = state.currentSubdivisionIndex,
-                    timeSignature = state.activeTimeSignature,
-                    subdivision = state.activeSubdivision,
-                    selectedSubdivision = state.selectedSubdivision,
-                    pendingSubdivision = state.pendingSubdivision,
+                BeatCardPager(
+                    state = state,
+                    onSetPlaybackMode = onSetPlaybackMode,
                     onSelectSubdivision = onSetSubdivision,
-                    isPlaying = state.isPlaying,
+                    onSetBeatDivisions = onSetCustomBeatDivisions,
+                    onCycleCell = onCycleCustomCell,
+                    onSavePreset = onSaveCustomPreset,
+                    onApplyPreset = onApplyCustomPreset,
+                    onDeletePreset = onDeleteCustomPreset,
                 )
             }
             item {
@@ -159,10 +166,12 @@ fun MetronomeScreen(
                 )
             }
             item {
-                AccentControl(
-                    checked = state.accentEnabled,
-                    onCheckedChange = onSetAccentEnabled,
-                )
+                AnimatedVisibility(visible = state.playbackMode == PlaybackMode.PRESET) {
+                    AccentControl(
+                        checked = state.accentEnabled,
+                        onCheckedChange = onSetAccentEnabled,
+                    )
+                }
             }
         }
     }

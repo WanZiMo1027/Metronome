@@ -8,6 +8,13 @@ import org.junit.Test
 
 class MetronomeModelsTest {
     @Test
+    fun `cell sound cycles normal accent silent and back to normal`() {
+        assertEquals(CellSound.ACCENT, CellSound.NORMAL.next())
+        assertEquals(CellSound.SILENT, CellSound.ACCENT.next())
+        assertEquals(CellSound.NORMAL, CellSound.SILENT.next())
+    }
+
+    @Test
     fun `tempo intervals are exact at supported reference values`() {
         assertEquals(2_000_000_000L, MetronomeTiming.intervalNanos(30))
         assertEquals(500_000_000L, MetronomeTiming.intervalNanos(120))
@@ -70,6 +77,88 @@ class MetronomeModelsTest {
 
         assertEquals(listOf(166_666_666L, 166_666_667L, 166_666_667L), durations)
         assertEquals(MetronomeTiming.intervalNanos(120), durations.sum())
+    }
+
+    @Test
+    fun `custom divisions one through eight exactly fill one beat`() {
+        val beatDuration = MetronomeTiming.intervalNanos(137)
+
+        for (divisionCount in MIN_CUSTOM_DIVISIONS..MAX_CUSTOM_DIVISIONS) {
+            val weights = List(divisionCount) { 1 }
+            val durations = weights.indices.map { index ->
+                MetronomeTiming.stepDurationNanos(137, weights, index)
+            }
+
+            assertEquals("$divisionCount 等分", beatDuration, durations.sum())
+            assertTrue(durations.all { it > 0L })
+        }
+    }
+
+    @Test
+    fun `custom pattern emits independent beat divisions and three sound states`() {
+        val settings = MetronomeSettings(
+            timeSignature = TimeSignature.TWO_FOUR,
+            playbackMode = PlaybackMode.CUSTOM,
+            customPattern = listOf(
+                BeatPattern(listOf(CellSound.NORMAL, CellSound.ACCENT, CellSound.SILENT)),
+                BeatPattern.normal(5),
+            ),
+        )
+        val sequencer = PulseSequencer(settings)
+
+        val firstBeat = List(3) { sequencer.next(settings, 0L) }
+        assertEquals(listOf(0, 1, 2), firstBeat.map { it.subdivisionIndex })
+        assertTrue(firstBeat.all { it.beat == 1 && it.subdivisionCount == 3 })
+        assertEquals(
+            listOf(AccentLevel.BEAT, AccentLevel.DOWNBEAT, AccentLevel.SILENT),
+            firstBeat.map { it.accentLevel },
+        )
+
+        val secondBeat = sequencer.next(settings, 0L)
+        assertEquals(2, secondBeat.beat)
+        assertEquals(5, secondBeat.subdivisionCount)
+        assertEquals(AccentLevel.BEAT, secondBeat.accentLevel)
+    }
+
+    @Test
+    fun `custom configuration changes atomically at next measure`() {
+        val initial = MetronomeSettings(
+            timeSignature = TimeSignature.TWO_FOUR,
+            playbackMode = PlaybackMode.CUSTOM,
+            customPattern = listOf(BeatPattern.normal(), BeatPattern.normal()),
+        )
+        val requested = MetronomeSettings(
+            bpm = 180,
+            timeSignature = TimeSignature.THREE_FOUR,
+            playbackMode = PlaybackMode.CUSTOM,
+            customPattern = List(3) { BeatPattern.normal(7) },
+        )
+        val sequencer = PulseSequencer(initial)
+
+        assertEquals(TimeSignature.TWO_FOUR, sequencer.next(requested, 0L).timeSignature)
+        assertEquals(TimeSignature.TWO_FOUR, sequencer.next(requested, 0L).timeSignature)
+        val nextMeasure = sequencer.next(requested, 0L)
+
+        assertEquals(1, nextMeasure.beat)
+        assertEquals(TimeSignature.THREE_FOUR, nextMeasure.timeSignature)
+        assertEquals(7, nextMeasure.subdivisionCount)
+        assertEquals(180, nextMeasure.bpm)
+    }
+
+    @Test
+    fun `custom patterns sanitize divisions and resize for time signature`() {
+        val oversized = BeatPattern(List(12) { CellSound.ACCENT }).sanitized()
+        assertEquals(MAX_CUSTOM_DIVISIONS, oversized.divisionCount)
+
+        val expanded = sanitizeCustomPattern(
+            pattern = listOf(BeatPattern.normal(3), BeatPattern.normal(5)),
+            timeSignature = TimeSignature.FOUR_FOUR,
+        )
+        assertEquals(listOf(3, 5, 1, 1), expanded.map { it.divisionCount })
+        assertTrue(expanded[2].cells.all { it == CellSound.NORMAL })
+
+        val reduced = sanitizeCustomPattern(expanded, TimeSignature.TWO_FOUR)
+        assertEquals(listOf(3, 5), reduced.map { it.divisionCount })
     }
 
     @Test

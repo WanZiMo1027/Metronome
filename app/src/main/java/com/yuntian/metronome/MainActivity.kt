@@ -225,6 +225,14 @@ private fun DestinationContent(
             onSetTimeSignature = { viewModel?.setTimeSignature(it) },
             onSetSubdivision = { viewModel?.setSubdivision(it) },
             onSetAccentEnabled = { viewModel?.setAccentEnabled(it) },
+            onSetPlaybackMode = { viewModel?.setPlaybackMode(it) },
+            onSetCustomBeatDivisions = { beat, divisions ->
+                viewModel?.setCustomBeatDivisions(beat, divisions)
+            },
+            onCycleCustomCell = { beat, cell -> viewModel?.cycleCustomCell(beat, cell) },
+            onSaveCustomPreset = { viewModel?.saveCustomPreset(it) },
+            onApplyCustomPreset = { viewModel?.applyCustomPreset(it) },
+            onDeleteCustomPreset = { viewModel?.deleteCustomPreset(it) },
             onConsumeError = { viewModel?.consumeError() },
             onRetryAudio = { viewModel?.start() },
             modifier = modifier,
