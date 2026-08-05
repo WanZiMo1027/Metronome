@@ -3,6 +3,9 @@ package com.yuntian.metronome
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.yuntian.metronome.metronome.MetronomeSettings
+import com.yuntian.metronome.metronome.ArrangementChange
+import com.yuntian.metronome.metronome.ArrangementMeter
+import com.yuntian.metronome.metronome.ArrangementPreset
 import com.yuntian.metronome.metronome.BeatPattern
 import com.yuntian.metronome.metronome.CellSound
 import com.yuntian.metronome.metronome.CustomPreset
@@ -95,5 +98,48 @@ class MetronomeSettingsRepositoryTest {
         assertEquals(PlaybackMode.PRESET, restored.playbackMode)
         assertEquals(3, restored.customPattern.size)
         assertEquals(CellSound.ACCENT, restored.customPattern.first().cells.first())
+    }
+
+    @Test
+    fun arrangementDraftAndPresetsRoundTripAndCorruptDataFallsBackSafely() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val preferences = context.getSharedPreferences(
+            "metronome_settings",
+            android.content.Context.MODE_PRIVATE,
+        )
+        preferences.edit().clear().commit()
+        val repository = SharedPreferencesMetronomeSettingsRepository(context)
+        val meter = ArrangementMeter(7, 8)
+        val changes = listOf(
+            ArrangementChange(),
+            ArrangementChange(
+                startMeasure = 17,
+                bpm = 181,
+                meter = meter,
+                beats = List(7) { beat ->
+                    BeatPattern(
+                        listOf(
+                            if (beat == 0) CellSound.ACCENT else CellSound.NORMAL,
+                            CellSound.SILENT,
+                        ),
+                    )
+                },
+            ),
+        )
+        val presets = listOf(ArrangementPreset("math-rock", "奇拍练习", changes))
+
+        repository.saveArrangementDraft(changes)
+        repository.saveArrangementPresets(presets)
+
+        val recreated = SharedPreferencesMetronomeSettingsRepository(context)
+        assertEquals(changes, recreated.loadArrangementDraft())
+        assertEquals(presets, recreated.loadArrangementPresets())
+
+        preferences.edit()
+            .putString("arrangement_draft", "not-json")
+            .putString("arrangement_presets", "not-json")
+            .commit()
+        assertEquals(emptyList<ArrangementChange>(), repository.loadArrangementDraft())
+        assertEquals(emptyList<ArrangementPreset>(), repository.loadArrangementPresets())
     }
 }

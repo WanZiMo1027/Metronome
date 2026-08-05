@@ -21,6 +21,12 @@ interface MetronomeEngine {
         onError: (Throwable) -> Unit,
     ): Boolean
 
+    fun startArrangement(
+        changes: List<ArrangementChange>,
+        onPulse: (PulseEvent) -> Unit,
+        onError: (Throwable) -> Unit,
+    ): Boolean
+
     fun updateSettings(settings: MetronomeSettings)
     fun updateTempo(bpm: Int)
     fun stop()
@@ -57,11 +63,54 @@ class AndroidMetronomeEngine : MetronomeEngine {
         }
 
         this.settings = settings.sanitized()
-        tempoBpm = this.settings.bpm
+        return startWorker(
+            clickOutput = clickOutput,
+            arrangement = null,
+            initialBpm = this.settings.bpm,
+            onPulse = onPulse,
+            onError = onError,
+        )
+    }
+
+    @Synchronized
+    override fun startArrangement(
+        changes: List<ArrangementChange>,
+        onPulse: (PulseEvent) -> Unit,
+        onError: (Throwable) -> Unit,
+    ): Boolean {
+        if (running) return true
+        val safeChanges = sanitizeArrangementChanges(changes)
+        if (safeChanges.isEmpty()) return false
+
+        val clickOutput = try {
+            AudioTrackClickOutput()
+        } catch (error: Throwable) {
+            Log.e(LOG_TAG, "Unable to initialize metronome audio", error)
+            onError(error)
+            return false
+        }
+
+        return startWorker(
+            clickOutput = clickOutput,
+            arrangement = safeChanges,
+            initialBpm = safeChanges.first().bpm,
+            onPulse = onPulse,
+            onError = onError,
+        )
+    }
+
+    private fun startWorker(
+        clickOutput: AudioTrackClickOutput,
+        arrangement: List<ArrangementChange>?,
+        initialBpm: Int,
+        onPulse: (PulseEvent) -> Unit,
+        onError: (Throwable) -> Unit,
+    ): Boolean {
+        tempoBpm = initialBpm.coerceIn(MIN_BPM, MAX_BPM)
         running = true
         workerThread = Thread(
             {
-                runScheduler(clickOutput, onPulse, onError)
+                runScheduler(clickOutput, arrangement, onPulse, onError)
             },
             "MetronomeAudioScheduler",
         ).apply { start() }
@@ -103,14 +152,22 @@ class AndroidMetronomeEngine : MetronomeEngine {
 
     private fun runScheduler(
         clickOutput: AudioTrackClickOutput,
+        arrangement: List<ArrangementChange>?,
         onPulse: (PulseEvent) -> Unit,
         onError: (Throwable) -> Unit,
     ) {
         try {
             Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO)
-            val sequencer = PulseSequencer(settings)
+            val sequencer = arrangement?.let(::ArrangementSequencer)
+            val metronomeSequencer = if (sequencer == null) PulseSequencer(settings) else null
             var lastScheduledAt = System.nanoTime()
-            var currentEvent = emitPulse(sequencer, lastScheduledAt, clickOutput, onPulse)
+            var currentEvent = emitPulse(
+                sequencer = sequencer,
+                metronomeSequencer = metronomeSequencer,
+                scheduledAtNanos = lastScheduledAt,
+                clickOutput = clickOutput,
+                onPulse = onPulse,
+            )
 
             while (running) {
                 val requestedDeadline = MetronomeTiming.nextDeadlineNanos(
@@ -141,7 +198,13 @@ class AndroidMetronomeEngine : MetronomeEngine {
                     stepWeights = currentEvent.stepWeights,
                     stepIndex = currentEvent.subdivisionIndex,
                 )
-                currentEvent = emitPulse(sequencer, scheduledAt, clickOutput, onPulse)
+                currentEvent = emitPulse(
+                    sequencer = sequencer,
+                    metronomeSequencer = metronomeSequencer,
+                    scheduledAtNanos = scheduledAt,
+                    clickOutput = clickOutput,
+                    onPulse = onPulse,
+                )
                 lastScheduledAt = scheduledAt
             }
         } catch (_: InterruptedException) {
@@ -161,12 +224,13 @@ class AndroidMetronomeEngine : MetronomeEngine {
     }
 
     private fun emitPulse(
-        sequencer: PulseSequencer,
+        sequencer: ArrangementSequencer?,
+        metronomeSequencer: PulseSequencer?,
         scheduledAtNanos: Long,
         clickOutput: AudioTrackClickOutput,
         onPulse: (PulseEvent) -> Unit,
     ): PulseEvent {
-        val event = sequencer.next(
+        val event = sequencer?.next(scheduledAtNanos) ?: metronomeSequencer!!.next(
             requestedSettings = settings,
             scheduledAtNanos = scheduledAtNanos,
         )

@@ -151,12 +151,15 @@ data class PulseEvent(
     val subdivisionIndex: Int,
     val subdivision: Subdivision,
     val stepWeights: List<Int>,
-    val timeSignature: TimeSignature,
+    val timeSignature: TimeSignature?,
     val playbackMode: PlaybackMode,
     val activeCustomPattern: List<BeatPattern>,
     val bpm: Int,
     val accentLevel: AccentLevel,
     val scheduledAtNanos: Long,
+    val arrangementMeter: ArrangementMeter? = null,
+    val measureNumber: Int? = null,
+    val arrangementRowIndex: Int? = null,
 ) {
     val subdivisionCount: Int
         get() = stepWeights.size

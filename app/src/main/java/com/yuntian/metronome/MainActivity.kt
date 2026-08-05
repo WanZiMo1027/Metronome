@@ -52,8 +52,10 @@ import androidx.compose.ui.tooling.preview.PreviewScreenSizes
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.yuntian.metronome.metronome.ArrangementUiState
 import com.yuntian.metronome.metronome.MetronomeUiState
 import com.yuntian.metronome.metronome.MetronomeViewModel
+import com.yuntian.metronome.ui.ArrangementScreen
 import com.yuntian.metronome.ui.MetronomeScreen
 import com.yuntian.metronome.ui.theme.MetronomeTheme
 
@@ -90,8 +92,10 @@ fun MetronomeApp(viewModel: MetronomeViewModel? = null) {
     var currentDestination by rememberSaveable { mutableStateOf(AppDestination.METRONOME) }
     val state by viewModel?.uiState?.collectAsStateWithLifecycle()
         ?: remember { mutableStateOf(MetronomeUiState()) }
+    val arrangementState by viewModel?.arrangementUiState?.collectAsStateWithLifecycle()
+        ?: remember { mutableStateOf(ArrangementUiState()) }
     val selectDestination: (AppDestination) -> Unit = { destination ->
-        if (destination != AppDestination.METRONOME) viewModel?.stop()
+        if (destination != currentDestination) viewModel?.stop()
         currentDestination = destination
     }
 
@@ -110,6 +114,7 @@ fun MetronomeApp(viewModel: MetronomeViewModel? = null) {
                 DestinationContent(
                     destination = currentDestination,
                     state = state,
+                    arrangementState = arrangementState,
                     viewModel = viewModel,
                     modifier = Modifier.padding(contentPadding),
                 )
@@ -135,6 +140,7 @@ fun MetronomeApp(viewModel: MetronomeViewModel? = null) {
                 DestinationContent(
                     destination = currentDestination,
                     state = state,
+                    arrangementState = arrangementState,
                     viewModel = viewModel,
                 )
             }
@@ -213,6 +219,7 @@ private fun NavigationLabel(destination: AppDestination, compact: Boolean = fals
 private fun DestinationContent(
     destination: AppDestination,
     state: MetronomeUiState,
+    arrangementState: ArrangementUiState,
     viewModel: MetronomeViewModel?,
     modifier: Modifier = Modifier,
 ) {
@@ -238,8 +245,28 @@ private fun DestinationContent(
             modifier = modifier,
         )
 
-        AppDestination.FAVORITES -> ComingSoonScreen(
-            title = "收藏",
+        AppDestination.ARRANGEMENT -> ArrangementScreen(
+            state = arrangementState,
+            onTogglePlayback = { viewModel?.toggleArrangementPlayback() },
+            onSelectChange = { viewModel?.selectArrangementChange(it) },
+            onAddChange = { viewModel?.addArrangementChange() },
+            onDeleteChange = { viewModel?.deleteArrangementChange(it) },
+            onSetStartMeasure = { row, measure ->
+                viewModel?.setArrangementStartMeasure(row, measure) ?: false
+            },
+            onSetConfiguration = { row, bpm, meter ->
+                viewModel?.setArrangementConfiguration(row, bpm, meter)
+            },
+            onSetBeatDivisions = { row, beat, divisions ->
+                viewModel?.setArrangementBeatDivisions(row, beat, divisions)
+            },
+            onCycleCell = { row, beat, cell ->
+                viewModel?.cycleArrangementCell(row, beat, cell)
+            },
+            onSavePreset = { viewModel?.saveArrangementPreset(it) },
+            onApplyPreset = { viewModel?.applyArrangementPreset(it) },
+            onDeletePreset = { viewModel?.deleteArrangementPreset(it) },
+            onConsumeError = { viewModel?.consumeArrangementError() },
             modifier = modifier,
         )
 
@@ -256,7 +283,7 @@ private enum class AppDestination(
     val icon: Int,
 ) {
     METRONOME("节拍器", "节拍器", R.drawable.ic_home),
-    FAVORITES("收藏", "收藏", R.drawable.ic_favorite),
+    ARRANGEMENT("编排", "小节编排", R.drawable.ic_arrangement),
     PROFILE("我的", "我的", R.drawable.ic_account_box),
 }
 
