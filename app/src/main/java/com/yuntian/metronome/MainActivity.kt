@@ -227,6 +227,7 @@ private fun DestinationContent(
         AppDestination.METRONOME -> MetronomeScreen(
             state = state,
             onTogglePlayback = { viewModel?.togglePlayback() },
+            onSetCountInEnabled = { viewModel?.setCountInEnabled(it) },
             onSetBpm = { viewModel?.setBpm(it) },
             onAdjustBpm = { viewModel?.adjustBpm(it) },
             onSetTimeSignature = { viewModel?.setTimeSignature(it) },
@@ -248,6 +249,7 @@ private fun DestinationContent(
         AppDestination.ARRANGEMENT -> ArrangementScreen(
             state = arrangementState,
             onTogglePlayback = { viewModel?.toggleArrangementPlayback() },
+            onSetCountInEnabled = { viewModel?.setCountInEnabled(it) },
             onPlayFromMeasure = { viewModel?.playArrangementFromMeasure(it) },
             onSelectChange = { viewModel?.selectArrangementChange(it) },
             onAddChange = { viewModel?.addArrangementChange() },

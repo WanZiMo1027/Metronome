@@ -5,16 +5,12 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTimestamp
 import android.media.AudioTrack
-import android.media.SoundPool
 import android.os.Build
 import android.os.Process
 import android.util.Log
 import com.yuntian.metronome.R
-import java.io.Closeable
 import java.util.ArrayDeque
-import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.max
 
@@ -28,6 +24,7 @@ interface MetronomeEngine {
     fun startArrangement(
         changes: List<ArrangementChange>,
         startMeasure: Int = 1,
+        countInEnabled: Boolean = false,
         onPulse: (PulseEvent) -> Unit,
         onError: (Throwable) -> Unit,
     ): Boolean
@@ -40,8 +37,7 @@ interface MetronomeEngine {
 
 class AndroidMetronomeEngine(context: Context) : MetronomeEngine {
     private val applicationContext = context.applicationContext
-    private val numberOutput = SoundPoolNumberOutput(applicationContext)
-    private val callbackExecutor = Executors.newSingleThreadScheduledExecutor { runnable ->
+    private val callbackExecutor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "MetronomePlaybackCallbacks").apply { isDaemon = true }
     }
     private val activeTrack = AtomicReference<AudioTrack?>(null)
@@ -49,6 +45,19 @@ class AndroidMetronomeEngine(context: Context) : MetronomeEngine {
         ClickSamples(
             downbeat = loadRawPcm16(applicationContext, R.raw.first_beat_pcm),
             otherBeat = loadRawPcm16(applicationContext, R.raw.other_beat_pcm),
+            numbers = listOf(
+                loadRawPcm16(applicationContext, R.raw.click_number_001_pcm),
+                loadRawPcm16(applicationContext, R.raw.click_number_002_pcm),
+                loadRawPcm16(applicationContext, R.raw.click_number_003_pcm),
+                loadRawPcm16(applicationContext, R.raw.click_number_004_pcm),
+                loadRawPcm16(applicationContext, R.raw.click_number_005_pcm),
+                loadRawPcm16(applicationContext, R.raw.click_number_006_pcm),
+                loadRawPcm16(applicationContext, R.raw.click_number_007_pcm),
+                loadRawPcm16(applicationContext, R.raw.click_number_008_pcm),
+                loadRawPcm16(applicationContext, R.raw.click_number_009_pcm),
+                loadRawPcm16(applicationContext, R.raw.click_number_010_pcm),
+                loadRawPcm16(applicationContext, R.raw.click_number_011_pcm),
+            ),
         )
     }
 
@@ -84,6 +93,7 @@ class AndroidMetronomeEngine(context: Context) : MetronomeEngine {
         return startWorker(
             arrangement = null,
             arrangementStartMeasure = 1,
+            countInEnabled = this.settings.countInEnabled,
             initialBpm = this.settings.bpm,
             onPulse = onPulse,
             onError = onError,
@@ -94,6 +104,7 @@ class AndroidMetronomeEngine(context: Context) : MetronomeEngine {
     override fun startArrangement(
         changes: List<ArrangementChange>,
         startMeasure: Int,
+        countInEnabled: Boolean,
         onPulse: (PulseEvent) -> Unit,
         onError: (Throwable) -> Unit,
     ): Boolean {
@@ -110,6 +121,7 @@ class AndroidMetronomeEngine(context: Context) : MetronomeEngine {
         return startWorker(
             arrangement = safeChanges,
             arrangementStartMeasure = safeStartMeasure,
+            countInEnabled = countInEnabled,
             initialBpm = initialChange.bpm,
             onPulse = onPulse,
             onError = onError,
@@ -119,6 +131,7 @@ class AndroidMetronomeEngine(context: Context) : MetronomeEngine {
     private fun startWorker(
         arrangement: List<ArrangementChange>?,
         arrangementStartMeasure: Int,
+        countInEnabled: Boolean,
         initialBpm: Int,
         onPulse: (PulseEvent) -> Unit,
         onError: (Throwable) -> Unit,
@@ -127,13 +140,13 @@ class AndroidMetronomeEngine(context: Context) : MetronomeEngine {
         running = true
         sessionGeneration += 1
         val generation = sessionGeneration
-        numberOutput.startSession()
         workerThread = Thread(
             {
                 runScheduler(
                     generation = generation,
                     arrangement = arrangement,
                     arrangementStartMeasure = arrangementStartMeasure,
+                    countInEnabled = countInEnabled,
                     onPulse = onPulse,
                     onError = onError,
                 )
@@ -160,7 +173,6 @@ class AndroidMetronomeEngine(context: Context) : MetronomeEngine {
             threadToJoin = workerThread
             trackToStop = activeTrack.get()
         }
-        numberOutput.stopSession()
         stopTrack(trackToStop)
         if (threadToJoin != null && threadToJoin !== Thread.currentThread()) {
             threadToJoin.join(STOP_JOIN_TIMEOUT_MILLIS)
@@ -181,7 +193,6 @@ class AndroidMetronomeEngine(context: Context) : MetronomeEngine {
             released = true
         }
         stop()
-        numberOutput.close()
         callbackExecutor.shutdownNow()
     }
 
@@ -189,6 +200,7 @@ class AndroidMetronomeEngine(context: Context) : MetronomeEngine {
         generation: Long,
         arrangement: List<ArrangementChange>?,
         arrangementStartMeasure: Int,
+        countInEnabled: Boolean,
         onPulse: (PulseEvent) -> Unit,
         onError: (Throwable) -> Unit,
     ) {
@@ -196,7 +208,6 @@ class AndroidMetronomeEngine(context: Context) : MetronomeEngine {
         var pendingError: Throwable? = null
         try {
             Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO)
-            if (arrangement != null) numberOutput.awaitReady(AUDIO_LOAD_TIMEOUT_MILLIS)
             if (!isSessionRunning(generation)) return
 
             val output = createAudioTrack()
@@ -210,6 +221,7 @@ class AndroidMetronomeEngine(context: Context) : MetronomeEngine {
                 clickSamples = clickSamples,
                 arrangement = arrangement,
                 arrangementStartMeasure = arrangementStartMeasure,
+                countInEnabled = countInEnabled,
                 settingsProvider = { settings },
                 tempoProvider = { tempoBpm },
                 startFrame = STARTUP_PREROLL_FRAMES,
@@ -258,7 +270,6 @@ class AndroidMetronomeEngine(context: Context) : MetronomeEngine {
         } finally {
             stopTrack(track)
             releaseTrack(track)
-            numberOutput.stopSession()
             synchronized(this) {
                 if (generation == sessionGeneration) running = false
                 if (workerThread === Thread.currentThread()) workerThread = null
@@ -290,19 +301,6 @@ class AndroidMetronomeEngine(context: Context) : MetronomeEngine {
             )
             callbackExecutor.execute {
                 if (!isSessionRunning(generation)) return@execute
-                event.numberCues.forEach { cue ->
-                    if (cue.delayMillis == 0L) {
-                        numberOutput.play(cue.value)
-                    } else {
-                        callbackExecutor.schedule(
-                            {
-                                if (isSessionRunning(generation)) numberOutput.play(cue.value)
-                            },
-                            cue.delayMillis,
-                            TimeUnit.MILLISECONDS,
-                        )
-                    }
-                }
                 runCatching { onPulse(event) }
                     .onFailure { Log.e(LOG_TAG, "Pulse callback failed", it) }
             }
@@ -402,7 +400,6 @@ class AndroidMetronomeEngine(context: Context) : MetronomeEngine {
     private companion object {
         const val LOG_TAG = "MetronomeEngine"
         const val AUDIO_THREAD_NAME = "MetronomeAudioScheduler"
-        const val AUDIO_LOAD_TIMEOUT_MILLIS = 5_000L
         const val STOP_JOIN_TIMEOUT_MILLIS = 500L
         const val STOP_INTERRUPT_JOIN_TIMEOUT_MILLIS = 100L
         const val RENDER_BLOCK_FRAMES = 441
@@ -411,16 +408,17 @@ class AndroidMetronomeEngine(context: Context) : MetronomeEngine {
     }
 }
 
-private class PcmTimelineRenderer(
+internal class PcmTimelineRenderer(
     private val clickSamples: ClickSamples,
     arrangement: List<ArrangementChange>?,
     arrangementStartMeasure: Int,
+    countInEnabled: Boolean,
     private val settingsProvider: () -> MetronomeSettings,
     private val tempoProvider: () -> Int,
     startFrame: Long,
 ) {
     private val arrangementSequencer = arrangement?.let {
-        ArrangementSequencer(it, arrangementStartMeasure)
+        ArrangementSequencer(it, arrangementStartMeasure, countInEnabled)
     }
     private val metronomeSequencer = if (arrangement == null) {
         PulseSequencer(settingsProvider())
@@ -530,6 +528,12 @@ private class PcmTimelineRenderer(
                 samples = samples,
             )
         }
+        scheduled.event.numberCues.forEach { cue ->
+            activeVoices += PcmVoice(
+                startFrame = numberCueStartFrame(scheduled.framePosition, cue.delayMillis),
+                samples = clickSamples.numbers[cue.value - 1],
+            )
+        }
     }
 
     private fun intervalBpm(event: PulseEvent): Int = if (arrangementSequencer != null) {
@@ -621,135 +625,6 @@ private class AudioPresentationClock {
     }
 }
 
-private class SoundPoolNumberOutput(context: Context) : Closeable {
-    private val lock = Object()
-    private val loadLatch = CountDownLatch(NUMBER_COUNT)
-    private val loadFailure = AtomicReference<Throwable?>(null)
-    private val soundPool = SoundPool.Builder()
-        .setMaxStreams(MAX_STREAMS)
-        .setAudioAttributes(
-            AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_MEDIA)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                .build(),
-        )
-        .build()
-    private val soundIds: IntArray
-    private val activeStreams = ArrayDeque<Int>()
-
-    private var sessionActive = false
-    private var released = false
-
-    init {
-        soundPool.setOnLoadCompleteListener { _, sampleId, status ->
-            if (status != 0) {
-                loadFailure.compareAndSet(
-                    null,
-                    IllegalStateException("Could not load number sample $sampleId (status=$status)"),
-                )
-            }
-            loadLatch.countDown()
-        }
-        try {
-            soundIds = intArrayOf(
-                load(context, R.raw.click_number_001),
-                load(context, R.raw.click_number_002),
-                load(context, R.raw.click_number_003),
-                load(context, R.raw.click_number_004),
-                load(context, R.raw.click_number_005),
-                load(context, R.raw.click_number_006),
-                load(context, R.raw.click_number_007),
-                load(context, R.raw.click_number_008),
-                load(context, R.raw.click_number_009),
-                load(context, R.raw.click_number_010),
-                load(context, R.raw.click_number_011),
-            )
-        } catch (error: Throwable) {
-            soundPool.release()
-            throw error
-        }
-    }
-
-    fun awaitReady(timeoutMillis: Long) {
-        if (!loadLatch.await(timeoutMillis, TimeUnit.MILLISECONDS)) {
-            error("Timed out while loading number samples")
-        }
-        loadFailure.get()?.let { throw it }
-    }
-
-    fun startSession() {
-        synchronized(lock) {
-            check(!released) { "Number output has been released" }
-            stopSessionLocked()
-            sessionActive = true
-        }
-    }
-
-    fun stopSession() {
-        synchronized(lock) {
-            stopSessionLocked()
-        }
-    }
-
-    fun play(value: Int) {
-        synchronized(lock) {
-            if (!sessionActive || released || value !in 1..NUMBER_COUNT) return
-            while (activeStreams.size >= MAX_TRACKED_STREAMS) {
-                activeStreams.removeFirst()
-            }
-            val streamId = soundPool.play(
-                soundIds[value - 1],
-                VOLUME,
-                VOLUME,
-                PRIORITY,
-                NO_LOOP,
-                NORMAL_RATE,
-            )
-            if (streamId != 0) activeStreams.addLast(streamId)
-        }
-    }
-
-    override fun close() {
-        synchronized(lock) {
-            if (released) return
-            released = true
-            stopSessionLocked()
-        }
-        soundPool.setOnLoadCompleteListener(null)
-        soundPool.release()
-    }
-
-    private fun load(context: Context, resourceId: Int): Int {
-        val soundId = soundPool.load(context, resourceId, LOAD_PRIORITY)
-        if (soundId == 0) {
-            loadFailure.compareAndSet(
-                null,
-                IllegalStateException("Could not queue number resource $resourceId"),
-            )
-            loadLatch.countDown()
-        }
-        return soundId
-    }
-
-    private fun stopSessionLocked() {
-        sessionActive = false
-        while (activeStreams.isNotEmpty()) {
-            soundPool.stop(activeStreams.removeFirst())
-        }
-    }
-
-    private companion object {
-        const val NUMBER_COUNT = 11
-        const val MAX_STREAMS = 4
-        const val MAX_TRACKED_STREAMS = 16
-        const val LOAD_PRIORITY = 1
-        const val PRIORITY = 1
-        const val NO_LOOP = 0
-        const val VOLUME = 1f
-        const val NORMAL_RATE = 1f
-    }
-}
-
 private fun loadRawPcm16(context: Context, resourceId: Int): ShortArray {
     val bytes = context.resources.openRawResource(resourceId).use { it.readBytes() }
     require(bytes.size % Short.SIZE_BYTES == 0) { "PCM resource must contain 16-bit samples" }
@@ -759,12 +634,17 @@ private fun loadRawPcm16(context: Context, resourceId: Int): ShortArray {
     }
 }
 
-private data class ClickSamples(
+internal data class ClickSamples(
     val downbeat: ShortArray,
     val otherBeat: ShortArray,
-)
+    val numbers: List<ShortArray>,
+) {
+    init {
+        require(numbers.size == 11)
+    }
+}
 
-private data class ScheduledPulse(
+internal data class ScheduledPulse(
     val framePosition: Long,
     val event: PulseEvent,
 )

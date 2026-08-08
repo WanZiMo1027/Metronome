@@ -125,6 +125,7 @@ internal fun BeatCardPager(
                     pendingSubdivision = state.pendingSubdivision,
                     onSelectSubdivision = onSelectSubdivision,
                     isPlaying = state.isPlaying && state.activePlaybackMode == PlaybackMode.PRESET,
+                    isCountIn = state.isCountIn,
                     modifier = Modifier.testTag("beat_card_page_preset"),
                 )
 
@@ -200,7 +201,15 @@ private fun CustomBeatCard(
                         style = MaterialTheme.typography.titleMedium,
                     )
                     Text(
-                        text = if (state.hasPendingConfiguration) {
+                        text = if (
+                            state.isCountIn &&
+                            state.activePlaybackMode == PlaybackMode.CUSTOM &&
+                            state.currentBeat != null
+                        ) {
+                            "预备拍 · 第 ${state.currentBeat} 拍 · " +
+                                "${state.currentSubdivisionIndex?.plus(1) ?: 1}/" +
+                                "${state.currentSubdivisionCount ?: 1}"
+                        } else if (state.hasPendingConfiguration) {
                             "已编辑 · 下一小节生效"
                         } else if (
                             state.isPlaying &&
@@ -215,7 +224,16 @@ private fun CustomBeatCard(
                         color = if (state.hasPendingConfiguration) MaterialTheme.colorScheme.primary
                         else MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.padding(top = 2.dp),
+                        modifier = Modifier
+                            .padding(top = 2.dp)
+                            .semantics {
+                                stateDescription = when {
+                                    state.isCountIn -> "正在预备"
+                                    state.isPlaying -> "正式播放"
+                                    else -> "准备就绪"
+                                }
+                            }
+                            .testTag("custom_playback_status"),
                     )
                 }
                 PresetMenu(
@@ -438,11 +456,11 @@ private fun CustomRhythmCell(
                     .background(MaterialTheme.colorScheme.onPrimary, RoundedCornerShape(2.dp)),
             )
 
-            CellSound.SILENT -> Box(
-                modifier = Modifier
-                    .width(12.dp)
-                    .height(1.dp)
-                    .background(MaterialTheme.colorScheme.outline),
+            CellSound.SILENT -> Text(
+                text = "✕",
+                color = MaterialTheme.colorScheme.outline,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
             )
 
             CellSound.NORMAL -> if (active) Box(

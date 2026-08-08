@@ -3,6 +3,12 @@ package com.yuntian.metronome.metronome
 internal const val METRONOME_PCM_SAMPLE_RATE = 44_100
 internal const val METRONOME_PCM_CHANNEL_COUNT = 2
 
+internal fun numberCueStartFrame(pulseFrame: Long, delayMillis: Long): Long {
+    require(pulseFrame >= 0L)
+    require(delayMillis >= 0L)
+    return pulseFrame + delayMillis * METRONOME_PCM_SAMPLE_RATE / 1_000L
+}
+
 /**
  * Advances an audio-frame cursor without discarding the fractional frame left by each pulse.
  * The fraction is stored as unsigned Q32 in a Long, while the whole-frame position can run for

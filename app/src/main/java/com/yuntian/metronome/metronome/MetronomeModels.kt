@@ -146,6 +146,7 @@ data class MetronomeSettings(
     val subdivision: Subdivision = Subdivision.QUARTER,
     val step: Int = 1,
     val accentEnabled: Boolean = true,
+    val countInEnabled: Boolean = false,
     val playbackMode: PlaybackMode = PlaybackMode.PRESET,
     val customPattern: List<BeatPattern> = defaultCustomPattern(timeSignature),
 ) {
@@ -167,6 +168,7 @@ data class PulseEvent(
     val bpm: Int,
     val accentLevel: AccentLevel,
     val scheduledAtNanos: Long,
+    val isCountIn: Boolean = false,
     val arrangementMeter: ArrangementMeter? = null,
     val measureNumber: Int? = null,
     val arrangementRowIndex: Int? = null,
@@ -185,12 +187,14 @@ data class MetronomeUiState(
     val activeSubdivision: Subdivision = Subdivision.QUARTER,
     val pendingSubdivision: Subdivision? = null,
     val accentEnabled: Boolean = true,
+    val countInEnabled: Boolean = false,
     val playbackMode: PlaybackMode = PlaybackMode.PRESET,
     val activePlaybackMode: PlaybackMode = playbackMode,
     val customPattern: List<BeatPattern> = defaultCustomPattern(activeTimeSignature),
     val activeCustomPattern: List<BeatPattern> = customPattern,
     val customPresets: List<CustomPreset> = emptyList(),
     val isPlaying: Boolean = false,
+    val isCountIn: Boolean = false,
     val currentBeat: Int? = null,
     val currentSubdivisionIndex: Int? = null,
     val currentSubdivisionCount: Int? = null,
@@ -219,6 +223,7 @@ data class MetronomeUiState(
         subdivision = selectedSubdivision,
         step = step,
         accentEnabled = accentEnabled,
+        countInEnabled = countInEnabled,
         playbackMode = playbackMode,
         customPattern = sanitizeCustomPattern(customPattern, selectedTimeSignature),
     )
@@ -296,6 +301,7 @@ internal object MetronomeTiming {
 
 internal class PulseSequencer(initialSettings: MetronomeSettings) {
     private var activeSettings: MetronomeSettings = initialSettings.sanitized()
+    private var countInActive = activeSettings.countInEnabled
 
     val activeTimeSignature: TimeSignature
         get() = activeSettings.timeSignature
@@ -337,6 +343,7 @@ internal class PulseSequencer(initialSettings: MetronomeSettings) {
                         activeSettings = requestedSettings.sanitized()
                     }
                     currentBeat = 1
+                    if (countInActive) countInActive = false
                 } else {
                     currentBeat += 1
                 }
@@ -361,6 +368,7 @@ internal class PulseSequencer(initialSettings: MetronomeSettings) {
             bpm = activeSettings.bpm,
             accentLevel = accentLevel,
             scheduledAtNanos = scheduledAtNanos,
+            isCountIn = countInActive,
         )
     }
 

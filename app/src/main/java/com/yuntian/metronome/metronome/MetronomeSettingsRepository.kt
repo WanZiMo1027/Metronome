@@ -35,6 +35,9 @@ class SharedPreferencesMetronomeSettingsRepository(context: Context) :
             subdivision = Subdivision.fromStored(preferences.getString(KEY_SUBDIVISION, null)),
             step = preferences.getInt(KEY_STEP, 1),
             accentEnabled = preferences.getBoolean(KEY_ACCENT, true),
+            countInEnabled = runCatching {
+                preferences.getBoolean(KEY_COUNT_IN, false)
+            }.getOrDefault(false),
             playbackMode = PlaybackMode.fromStored(preferences.getString(KEY_PLAYBACK_MODE, null)),
             customPattern = if (customPattern.isEmpty()) {
                 defaultCustomPattern(timeSignature)
@@ -53,6 +56,7 @@ class SharedPreferencesMetronomeSettingsRepository(context: Context) :
             putString(KEY_SUBDIVISION, safeSettings.subdivision.name)
             putInt(KEY_STEP, safeSettings.step)
             putBoolean(KEY_ACCENT, safeSettings.accentEnabled)
+            putBoolean(KEY_COUNT_IN, safeSettings.countInEnabled)
             putString(KEY_PLAYBACK_MODE, safeSettings.playbackMode.name)
             putString(KEY_CUSTOM_PATTERN, patternToJson(safeSettings.customPattern).toString())
         }
@@ -220,13 +224,14 @@ class SharedPreferencesMetronomeSettingsRepository(context: Context) :
 
     private companion object {
         const val PREFERENCES_NAME = "metronome_settings"
-        const val SCHEMA_VERSION = 3
+        const val SCHEMA_VERSION = 4
         const val KEY_SCHEMA_VERSION = "schema_version"
         const val KEY_BPM = "bpm"
         const val KEY_TIME_SIGNATURE = "time_signature"
         const val KEY_SUBDIVISION = "subdivision"
         const val KEY_STEP = "step"
         const val KEY_ACCENT = "accent"
+        const val KEY_COUNT_IN = "count_in_enabled"
         const val KEY_PLAYBACK_MODE = "playback_mode"
         const val KEY_CUSTOM_PATTERN = "custom_pattern"
         const val KEY_CUSTOM_PRESETS = "custom_presets"

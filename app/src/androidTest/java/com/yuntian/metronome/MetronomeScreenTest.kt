@@ -1,6 +1,8 @@
 package com.yuntian.metronome
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -13,6 +15,8 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeLeft
 import androidx.compose.ui.test.swipeUp
+import com.yuntian.metronome.metronome.BeatPattern
+import com.yuntian.metronome.metronome.CellSound
 import com.yuntian.metronome.metronome.PlaybackMode
 import com.yuntian.metronome.metronome.MetronomeUiState
 import com.yuntian.metronome.metronome.Subdivision
@@ -38,6 +42,37 @@ class MetronomeScreenTest {
         composeRule.onNodeWithText("开始").performClick()
 
         assertEquals(1, toggles)
+    }
+
+    @Test
+    fun countInSwitchRequestsTheSharedSettingChange() {
+        var enabled: Boolean? = null
+        setScreen(onSetCountInEnabled = { enabled = it })
+
+        composeRule.onNodeWithTag("metronome_count_in_switch")
+            .assertIsEnabled()
+            .performClick()
+
+        assertEquals(true, enabled)
+    }
+
+    @Test
+    fun countInStatusIsAnnouncedAndSwitchIsLockedDuringPlayback() {
+        setScreen(
+            state = MetronomeUiState(
+                countInEnabled = true,
+                isPlaying = true,
+                isCountIn = true,
+                currentBeat = 2,
+                currentSubdivisionIndex = 1,
+                currentSubdivisionCount = 2,
+                activeSubdivision = Subdivision.EIGHTH,
+            ),
+        )
+
+        composeRule.onNodeWithTag("metronome_count_in_switch").assertIsNotEnabled()
+        composeRule.onNodeWithTag("metronome_playback_status")
+            .assertTextEquals("预备拍 · 第 2 拍 · 2/2")
     }
 
     @Test
@@ -129,6 +164,26 @@ class MetronomeScreenTest {
     }
 
     @Test
+    fun silentCustomCellUsesCrossSymbol() {
+        val pattern = listOf(
+            BeatPattern(listOf(CellSound.SILENT)),
+            BeatPattern.normal(),
+            BeatPattern.normal(),
+            BeatPattern.normal(),
+        )
+        setScreen(
+            state = MetronomeUiState(
+                playbackMode = PlaybackMode.CUSTOM,
+                activePlaybackMode = PlaybackMode.CUSTOM,
+                customPattern = pattern,
+                activeCustomPattern = pattern,
+            ),
+        )
+
+        composeRule.onNodeWithText("✕", useUnmergedTree = true).assertIsDisplayed()
+    }
+
+    @Test
     fun customCellCanBeClickedAndColumnSwipeRequestsNextDivisionCount() {
         var clicked: Pair<Int, Int>? = null
         var resized: Pair<Int, Int>? = null
@@ -169,6 +224,7 @@ class MetronomeScreenTest {
     private fun setScreen(
         state: MetronomeUiState = MetronomeUiState(),
         onTogglePlayback: () -> Unit = {},
+        onSetCountInEnabled: (Boolean) -> Unit = {},
         onSetSubdivision: (Subdivision) -> Unit = {},
         onSetPlaybackMode: (PlaybackMode) -> Unit = {},
         onSetCustomBeatDivisions: (Int, Int) -> Unit = { _, _ -> },
@@ -180,6 +236,7 @@ class MetronomeScreenTest {
                 MetronomeScreen(
                     state = state,
                     onTogglePlayback = onTogglePlayback,
+                    onSetCountInEnabled = onSetCountInEnabled,
                     onSetBpm = {},
                     onAdjustBpm = {},
                     onSetTimeSignature = {},

@@ -77,6 +77,7 @@ import kotlin.math.roundToInt
 fun MetronomeScreen(
     state: MetronomeUiState,
     onTogglePlayback: () -> Unit,
+    onSetCountInEnabled: (Boolean) -> Unit = {},
     onSetBpm: (Int) -> Unit,
     onAdjustBpm: (Int) -> Unit,
     onSetTimeSignature: (TimeSignature) -> Unit,
@@ -113,6 +114,9 @@ fun MetronomeScreen(
         bottomBar = {
             StartStopBar(
                 isPlaying = state.isPlaying,
+                countInEnabled = state.countInEnabled,
+                isCountIn = state.isCountIn,
+                onSetCountInEnabled = onSetCountInEnabled,
                 onClick = onTogglePlayback,
             )
         },
@@ -439,10 +443,25 @@ private fun SectionLabel(text: String) {
 }
 
 @Composable
-private fun StartStopBar(isPlaying: Boolean, onClick: () -> Unit) {
+private fun StartStopBar(
+    isPlaying: Boolean,
+    countInEnabled: Boolean,
+    isCountIn: Boolean,
+    onSetCountInEnabled: (Boolean) -> Unit,
+    onClick: () -> Unit,
+) {
     Surface(color = MaterialTheme.colorScheme.background) {
         Column {
             HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+            CountInControl(
+                checked = countInEnabled,
+                enabled = !isPlaying,
+                isCountIn = isCountIn,
+                onCheckedChange = onSetCountInEnabled,
+                testTag = "metronome_count_in_switch",
+                statusTag = "metronome_count_in_control_status",
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+            )
             Button(
                 onClick = onClick,
                 modifier = Modifier

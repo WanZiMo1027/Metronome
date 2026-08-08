@@ -60,6 +60,7 @@ internal fun BeatLane(
     pendingSubdivision: Subdivision?,
     onSelectSubdivision: (Subdivision) -> Unit,
     isPlaying: Boolean,
+    isCountIn: Boolean,
     modifier: Modifier = Modifier,
 ) {
     var showSubdivisionDialog by rememberSaveable { mutableStateOf(false) }
@@ -82,11 +83,26 @@ internal fun BeatLane(
                 Text(
                     text = when {
                         isPlaying && currentBeat != null && currentSubdivisionIndex != null ->
-                            "当前第 $currentBeat 拍 · ${currentSubdivisionIndex + 1}/${subdivision.stepCount}"
+                            if (isCountIn) {
+                                "预备拍 · 第 $currentBeat 拍 · " +
+                                    "${currentSubdivisionIndex + 1}/${subdivision.stepCount}"
+                            } else {
+                                "当前第 $currentBeat 拍 · " +
+                                    "${currentSubdivisionIndex + 1}/${subdivision.stepCount}"
+                            }
 
                         else -> "准备就绪"
                     },
                     style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier
+                        .semantics {
+                            stateDescription = when {
+                                isCountIn -> "正在预备"
+                                isPlaying -> "正式播放"
+                                else -> "准备就绪"
+                            }
+                        }
+                        .testTag("metronome_playback_status"),
                 )
                 CompactSubdivisionButton(
                     selected = selectedSubdivision,

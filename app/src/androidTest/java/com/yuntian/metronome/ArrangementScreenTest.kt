@@ -21,6 +21,8 @@ import androidx.compose.ui.test.swipeUp
 import com.yuntian.metronome.metronome.ArrangementChange
 import com.yuntian.metronome.metronome.ArrangementMeter
 import com.yuntian.metronome.metronome.ArrangementUiState
+import com.yuntian.metronome.metronome.BeatPattern
+import com.yuntian.metronome.metronome.CellSound
 import com.yuntian.metronome.metronome.appendArrangementChange
 import com.yuntian.metronome.ui.ArrangementScreen
 import com.yuntian.metronome.ui.theme.MetronomeTheme
@@ -162,6 +164,63 @@ class ArrangementScreenTest {
         composeRule.onNodeWithTag("arrangement_add_button").assertIsNotEnabled()
         composeRule.onNodeWithTag("arrangement_save_button").assertIsNotEnabled()
         composeRule.onNodeWithText("停止").assertIsDisplayed()
+    }
+
+    @Test
+    fun silentArrangementCellUsesCrossSymbol() {
+        val row = ArrangementChange(
+            beats = listOf(
+                BeatPattern(listOf(CellSound.SILENT)),
+                BeatPattern.normal(),
+                BeatPattern.normal(),
+                BeatPattern.normal(),
+            ),
+        )
+        setScreen(
+            state = ArrangementUiState(
+                changes = listOf(row),
+                selectedRowIndex = 0,
+            ),
+        )
+
+        composeRule.onNodeWithText("✕", useUnmergedTree = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun countInSwitchCanBeChangedWhileStopped() {
+        var enabled: Boolean? = null
+        setScreen(
+            state = ArrangementUiState(changes = listOf(ArrangementChange())),
+            onSetCountInEnabled = { enabled = it },
+        )
+
+        composeRule.onNodeWithTag("arrangement_count_in_switch")
+            .assertIsEnabled()
+            .performClick()
+
+        assertEquals(true, enabled)
+    }
+
+    @Test
+    fun arrangementCountInShowsStartMeasureAndLocksTheSwitch() {
+        setScreen(
+            state = ArrangementUiState(
+                changes = listOf(ArrangementChange()),
+                countInEnabled = true,
+                playbackStartMeasure = 3,
+                isPlaying = true,
+                isCountIn = true,
+                currentMeasure = 3,
+                currentRowIndex = 0,
+                currentBeat = 1,
+                currentSubdivisionIndex = 0,
+                currentSubdivisionCount = 1,
+            ),
+        )
+
+        composeRule.onNodeWithTag("arrangement_count_in_switch").assertIsNotEnabled()
+        composeRule.onNodeWithTag("arrangement_count_in_status")
+            .assertTextEquals("预备拍 · 第 3 小节")
     }
 
     @Test
@@ -370,6 +429,7 @@ class ArrangementScreenTest {
     private fun setScreen(
         state: ArrangementUiState = ArrangementUiState(),
         onPlayFromMeasure: (Int) -> Unit = {},
+        onSetCountInEnabled: (Boolean) -> Unit = {},
         onSelectChange: (Int) -> Unit = {},
         onAddChange: () -> Unit = {},
         onSetStartMeasure: (Int, Int) -> Boolean = { _, _ -> true },
@@ -383,6 +443,7 @@ class ArrangementScreenTest {
                 ArrangementScreen(
                     state = state,
                     onTogglePlayback = {},
+                    onSetCountInEnabled = onSetCountInEnabled,
                     onPlayFromMeasure = onPlayFromMeasure,
                     onSelectChange = onSelectChange,
                     onAddChange = onAddChange,

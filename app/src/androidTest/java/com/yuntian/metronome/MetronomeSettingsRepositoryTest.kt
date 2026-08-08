@@ -30,6 +30,7 @@ class MetronomeSettingsRepositoryTest {
             subdivision = Subdivision.SWING_LONG_SHORT,
             step = 5,
             accentEnabled = false,
+            countInEnabled = true,
             playbackMode = PlaybackMode.CUSTOM,
             customPattern = List(6) { index ->
                 BeatPattern(
@@ -96,8 +97,26 @@ class MetronomeSettingsRepositoryTest {
 
         assertEquals(92, restored.bpm)
         assertEquals(PlaybackMode.PRESET, restored.playbackMode)
+        assertEquals(false, restored.countInEnabled)
         assertEquals(3, restored.customPattern.size)
         assertEquals(CellSound.ACCENT, restored.customPattern.first().cells.first())
+    }
+
+    @Test
+    fun corruptCountInPreferenceFallsBackToDisabled() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val preferences = context.getSharedPreferences(
+            "metronome_settings",
+            android.content.Context.MODE_PRIVATE,
+        )
+        preferences.edit()
+            .clear()
+            .putString("count_in_enabled", "not-a-boolean")
+            .commit()
+
+        val restored = SharedPreferencesMetronomeSettingsRepository(context).load()
+
+        assertEquals(false, restored.countInEnabled)
     }
 
     @Test

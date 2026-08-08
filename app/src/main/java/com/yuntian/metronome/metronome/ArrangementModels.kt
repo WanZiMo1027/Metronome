@@ -52,7 +52,9 @@ data class ArrangementUiState(
     val presets: List<ArrangementPreset> = emptyList(),
     val selectedRowIndex: Int? = null,
     val playbackStartMeasure: Int = 1,
+    val countInEnabled: Boolean = false,
     val isPlaying: Boolean = false,
+    val isCountIn: Boolean = false,
     val currentMeasure: Int? = null,
     val currentRowIndex: Int? = null,
     val currentBeat: Int? = null,
@@ -170,6 +172,7 @@ fun resizeBeatPattern(beat: BeatPattern, divisions: Int): BeatPattern {
 internal class ArrangementSequencer(
     rawChanges: List<ArrangementChange>,
     initialMeasure: Int = 1,
+    countInEnabled: Boolean = false,
 ) {
     private val changes = sanitizeArrangementChanges(rawChanges)
     private var currentMeasure = initialMeasure.coerceIn(1, changes.last().startMeasure)
@@ -178,6 +181,7 @@ internal class ArrangementSequencer(
     private var currentBeat = 0
     private var currentSubdivisionIndex = -1
     private var pendingNumberCues = emptyList<NumberCue>()
+    private var countInActive = countInEnabled
 
     init {
         require(changes.isNotEmpty())
@@ -196,18 +200,22 @@ internal class ArrangementSequencer(
                 currentBeat += 1
                 currentSubdivisionIndex = 0
             } else {
-                val previousMeter = active.meter
-                currentMeasure = if (currentMeasure >= changes.last().startMeasure) {
-                    1
+                if (countInActive) {
+                    countInActive = false
                 } else {
-                    currentMeasure + 1
+                    val previousMeter = active.meter
+                    currentMeasure = if (currentMeasure >= changes.last().startMeasure) {
+                        1
+                    } else {
+                        currentMeasure + 1
+                    }
+                    currentRowIndex = changes.indexOfLast { it.startMeasure <= currentMeasure }
+                        .coerceAtLeast(0)
+                    pendingNumberCues = numberCuesForMeterChange(
+                        previousMeter = previousMeter,
+                        nextMeter = changes[currentRowIndex].meter,
+                    )
                 }
-                currentRowIndex = changes.indexOfLast { it.startMeasure <= currentMeasure }
-                    .coerceAtLeast(0)
-                pendingNumberCues = numberCuesForMeterChange(
-                    previousMeter = previousMeter,
-                    nextMeter = changes[currentRowIndex].meter,
-                )
                 currentBeat = 1
                 currentSubdivisionIndex = 0
             }
@@ -242,6 +250,7 @@ internal class ArrangementSequencer(
             bpm = active.bpm,
             accentLevel = accentLevel,
             scheduledAtNanos = scheduledAtNanos,
+            isCountIn = countInActive,
             arrangementMeter = active.meter,
             measureNumber = currentMeasure,
             arrangementRowIndex = currentRowIndex,

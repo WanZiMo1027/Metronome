@@ -25,6 +25,7 @@ class MetronomeViewModel(application: Application) : AndroidViewModel(applicatio
             activeTimeSignature = initialSettings.timeSignature,
             activeSubdivision = initialSettings.subdivision,
             accentEnabled = initialSettings.accentEnabled,
+            countInEnabled = initialSettings.countInEnabled,
             playbackMode = initialSettings.playbackMode,
             activePlaybackMode = initialSettings.playbackMode,
             customPattern = initialSettings.customPattern,
@@ -39,6 +40,7 @@ class MetronomeViewModel(application: Application) : AndroidViewModel(applicatio
             changes = initialArrangementDraft,
             presets = repository.loadArrangementPresets(),
             selectedRowIndex = initialArrangementDraft.lastIndex.takeIf { it >= 0 },
+            countInEnabled = initialSettings.countInEnabled,
         ),
     )
     val arrangementUiState: StateFlow<ArrangementUiState> = _arrangementUiState.asStateFlow()
@@ -69,6 +71,7 @@ class MetronomeViewModel(application: Application) : AndroidViewModel(applicatio
                             activeSubdivision = event.subdivision,
                             activePlaybackMode = event.playbackMode,
                             activeCustomPattern = event.activeCustomPattern,
+                            isCountIn = event.isCountIn,
                             pendingTimeSignature = event.timeSignature?.let { signature ->
                                 state.pendingTimeSignature?.takeUnless { it == signature }
                             } ?: state.pendingTimeSignature,
@@ -85,6 +88,7 @@ class MetronomeViewModel(application: Application) : AndroidViewModel(applicatio
                     _uiState.update { state ->
                         state.copy(
                             isPlaying = false,
+                            isCountIn = false,
                             currentBeat = null,
                             currentSubdivisionIndex = null,
                             currentSubdivisionCount = null,
@@ -98,6 +102,7 @@ class MetronomeViewModel(application: Application) : AndroidViewModel(applicatio
             _uiState.update {
                 it.copy(
                     isPlaying = true,
+                    isCountIn = it.countInEnabled,
                     currentBeat = null,
                     currentSubdivisionIndex = null,
                     currentSubdivisionCount = null,
@@ -115,6 +120,7 @@ class MetronomeViewModel(application: Application) : AndroidViewModel(applicatio
             val selectedPattern = sanitizeCustomPattern(state.customPattern, selectedSignature)
             state.copy(
                 isPlaying = false,
+                isCountIn = false,
                 activeBpm = state.bpm,
                 currentBeat = null,
                 currentSubdivisionIndex = null,
@@ -131,6 +137,7 @@ class MetronomeViewModel(application: Application) : AndroidViewModel(applicatio
         _arrangementUiState.update {
             it.copy(
                 isPlaying = false,
+                isCountIn = false,
                 currentMeasure = null,
                 currentRowIndex = null,
                 currentBeat = null,
@@ -203,6 +210,13 @@ class MetronomeViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun setAccentEnabled(enabled: Boolean) {
         _uiState.update { it.copy(accentEnabled = enabled) }
+        settingsChanged()
+    }
+
+    fun setCountInEnabled(enabled: Boolean) {
+        if (_uiState.value.isPlaying || _arrangementUiState.value.isPlaying) return
+        _uiState.update { it.copy(countInEnabled = enabled) }
+        _arrangementUiState.update { it.copy(countInEnabled = enabled) }
         settingsChanged()
     }
 
@@ -334,6 +348,7 @@ class MetronomeViewModel(application: Application) : AndroidViewModel(applicatio
         val started = engine.startArrangement(
             changes = changes,
             startMeasure = safeStartMeasure,
+            countInEnabled = _arrangementUiState.value.countInEnabled,
             onPulse = { event ->
                 viewModelScope.launch {
                     if (generation != playbackGeneration || !_arrangementUiState.value.isPlaying) {
@@ -346,6 +361,7 @@ class MetronomeViewModel(application: Application) : AndroidViewModel(applicatio
                             currentBeat = event.beat,
                             currentSubdivisionIndex = event.subdivisionIndex,
                             currentSubdivisionCount = event.subdivisionCount,
+                            isCountIn = event.isCountIn,
                         )
                     }
                 }
@@ -357,6 +373,7 @@ class MetronomeViewModel(application: Application) : AndroidViewModel(applicatio
                     _arrangementUiState.update { state ->
                         state.copy(
                             isPlaying = false,
+                            isCountIn = false,
                             currentMeasure = null,
                             currentRowIndex = null,
                             currentBeat = null,
@@ -374,6 +391,7 @@ class MetronomeViewModel(application: Application) : AndroidViewModel(applicatio
                     changes = changes,
                     playbackStartMeasure = safeStartMeasure,
                     isPlaying = true,
+                    isCountIn = it.countInEnabled,
                     currentMeasure = null,
                     currentRowIndex = null,
                     currentBeat = null,

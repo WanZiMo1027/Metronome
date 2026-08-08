@@ -114,6 +114,7 @@ private const val MEASURES_PER_ROW = 4
 fun ArrangementScreen(
     state: ArrangementUiState,
     onTogglePlayback: () -> Unit,
+    onSetCountInEnabled: (Boolean) -> Unit = {},
     onPlayFromMeasure: (Int) -> Unit,
     onSelectChange: (Int) -> Unit,
     onAddChange: () -> Unit,
@@ -169,6 +170,8 @@ fun ArrangementScreen(
         bottomBar = {
             ArrangementBottomBar(
                 isPlaying = state.isPlaying,
+                isCountIn = state.isCountIn,
+                countInEnabled = state.countInEnabled,
                 playbackStartMeasure = state.playbackStartMeasure,
                 currentMeasure = state.currentMeasure,
                 lastMeasure = state.changes.lastOrNull()?.startMeasure ?: 0,
@@ -177,6 +180,7 @@ fun ArrangementScreen(
                 ),
                 playbackEnabled = state.changes.isNotEmpty(),
                 onAdd = onAddChange,
+                onSetCountInEnabled = onSetCountInEnabled,
                 onTogglePlayback = onTogglePlayback,
                 onPlayFromMeasure = onPlayFromMeasure,
             )
@@ -216,6 +220,7 @@ fun ArrangementScreen(
                         isPlaying = state.isPlaying,
                         isSelected = state.selectedRowIndex == rowIndex,
                         isActive = state.isPlaying && state.currentRowIndex == rowIndex,
+                        isCountIn = state.isCountIn,
                         displayedMeasure = if (state.currentRowIndex == rowIndex) {
                             state.currentMeasure ?: change.startMeasure
                         } else {
@@ -407,6 +412,7 @@ private fun ArrangementRow(
     isPlaying: Boolean,
     isSelected: Boolean,
     isActive: Boolean,
+    isCountIn: Boolean,
     displayedMeasure: Int,
     currentBeat: Int?,
     currentSubdivisionIndex: Int?,
@@ -506,6 +512,7 @@ private fun ArrangementRow(
                             contentDescription = if (rowIndex == 0) "第 1 小节，固定起点"
                             else "起始小节 $displayedMeasure，点击编辑"
                             stateDescription = when {
+                                isActive && isCountIn -> "正在预备"
                                 isActive -> "当前播放小节"
                                 isSelected -> "已选中"
                                 else -> "未选中"
@@ -728,11 +735,11 @@ private fun ArrangementRhythmCell(
                     .height(3.dp)
                     .background(MaterialTheme.colorScheme.onPrimary, RoundedCornerShape(2.dp)),
             )
-            CellSound.SILENT -> Box(
-                Modifier
-                    .width(11.dp)
-                    .height(1.dp)
-                    .background(MaterialTheme.colorScheme.outline),
+            CellSound.SILENT -> Text(
+                text = "✕",
+                color = MaterialTheme.colorScheme.outline,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
             )
             CellSound.NORMAL -> if (active) Box(
                 Modifier
@@ -746,12 +753,15 @@ private fun ArrangementRhythmCell(
 @Composable
 private fun ArrangementBottomBar(
     isPlaying: Boolean,
+    isCountIn: Boolean,
+    countInEnabled: Boolean,
     playbackStartMeasure: Int,
     currentMeasure: Int?,
     lastMeasure: Int,
     addEnabled: Boolean,
     playbackEnabled: Boolean,
     onAdd: () -> Unit,
+    onSetCountInEnabled: (Boolean) -> Unit,
     onTogglePlayback: () -> Unit,
     onPlayFromMeasure: (Int) -> Unit,
 ) {
@@ -814,6 +824,7 @@ private fun ArrangementBottomBar(
                 Column {
                     ArrangementMeasureDrawer(
                         isPlaying = isPlaying,
+                        isCountIn = isCountIn,
                         playbackStartMeasure = playbackStartMeasure,
                         currentMeasure = currentMeasure,
                         lastMeasure = lastMeasure,
@@ -825,6 +836,17 @@ private fun ArrangementBottomBar(
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline)
                 }
             }
+
+            CountInControl(
+                checked = countInEnabled,
+                enabled = !isPlaying,
+                isCountIn = isCountIn,
+                onCheckedChange = onSetCountInEnabled,
+                testTag = "arrangement_count_in_switch",
+                statusTag = "arrangement_count_in_status",
+                activeStatus = "预备拍 · 第 ${currentMeasure ?: playbackStartMeasure} 小节",
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
+            )
 
             Row(
                 modifier = Modifier
@@ -876,6 +898,7 @@ private fun ArrangementBottomBar(
 @Composable
 private fun ArrangementMeasureDrawer(
     isPlaying: Boolean,
+    isCountIn: Boolean,
     playbackStartMeasure: Int,
     currentMeasure: Int?,
     lastMeasure: Int,
@@ -913,7 +936,8 @@ private fun ArrangementMeasureDrawer(
         ) {
             Text(
                 text = if (isPlaying) {
-                    "当前：第 $focusedMeasure 小节"
+                    if (isCountIn) "预备拍：第 $focusedMeasure 小节"
+                    else "当前：第 $focusedMeasure 小节"
                 } else {
                     "起播：第 $focusedMeasure 小节"
                 },
