@@ -175,4 +175,38 @@ class ArrangementModelsTest {
         assertEquals(listOf(1, 2, 3), secondMeasure.map { it.beat })
         assertTrue(secondMeasure.all { it.bpm == 190 && it.arrangementMeter == secondMeter })
     }
+
+    @Test
+    fun `arrangement can start from any sanitized measure and still loop to one`() {
+        val firstMeter = ArrangementMeter(2, 4)
+        val lastMeter = ArrangementMeter(3, 8)
+        val changes = listOf(
+            ArrangementChange(1, 120, firstMeter, defaultArrangementPattern(firstMeter)),
+            ArrangementChange(4, 180, lastMeter, defaultArrangementPattern(lastMeter)),
+        )
+
+        val betweenChanges = ArrangementSequencer(changes, initialMeasure = 3)
+        val firstBetweenEvent = betweenChanges.next(0L)
+        assertEquals(3, firstBetweenEvent.measureNumber)
+        assertEquals(0, firstBetweenEvent.arrangementRowIndex)
+        assertEquals(1, firstBetweenEvent.beat)
+        assertEquals(0, firstBetweenEvent.subdivisionIndex)
+        assertEquals(120, firstBetweenEvent.bpm)
+        assertEquals(firstMeter, firstBetweenEvent.arrangementMeter)
+
+        val exactChange = ArrangementSequencer(changes, initialMeasure = 4).next(0L)
+        assertEquals(4, exactChange.measureNumber)
+        assertEquals(1, exactChange.arrangementRowIndex)
+        assertEquals(180, exactChange.bpm)
+        assertEquals(lastMeter, exactChange.arrangementMeter)
+        assertTrue(exactChange.numberCues.isEmpty())
+
+        val clampedLow = ArrangementSequencer(changes, initialMeasure = 0).next(0L)
+        assertEquals(1, clampedLow.measureNumber)
+
+        val clampedHigh = ArrangementSequencer(changes, initialMeasure = Int.MAX_VALUE)
+        assertEquals(4, clampedHigh.next(0L).measureNumber)
+        repeat(lastMeter.numerator - 1) { clampedHigh.next(0L) }
+        assertEquals(1, clampedHigh.next(0L).measureNumber)
+    }
 }

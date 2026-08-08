@@ -248,6 +248,7 @@ private fun DestinationContent(
         AppDestination.ARRANGEMENT -> ArrangementScreen(
             state = arrangementState,
             onTogglePlayback = { viewModel?.toggleArrangementPlayback() },
+            onPlayFromMeasure = { viewModel?.playArrangementFromMeasure(it) },
             onSelectChange = { viewModel?.selectArrangementChange(it) },
             onAddChange = { viewModel?.addArrangementChange() },
             onDeleteChange = { viewModel?.deleteArrangementChange(it) },

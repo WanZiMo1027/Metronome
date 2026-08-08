@@ -1,7 +1,12 @@
 package com.yuntian.metronome.ui
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -22,12 +27,16 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.PageSize
 import androidx.compose.foundation.pager.VerticalPager
@@ -99,11 +108,13 @@ import kotlin.math.abs
 
 private val ArrangementRowShape = RoundedCornerShape(18.dp)
 private val ArrangementCellShape = RoundedCornerShape(4.dp)
+private const val MEASURES_PER_ROW = 4
 
 @Composable
 fun ArrangementScreen(
     state: ArrangementUiState,
     onTogglePlayback: () -> Unit,
+    onPlayFromMeasure: (Int) -> Unit,
     onSelectChange: (Int) -> Unit,
     onAddChange: () -> Unit,
     onDeleteChange: (Int) -> Unit,
@@ -158,12 +169,16 @@ fun ArrangementScreen(
         bottomBar = {
             ArrangementBottomBar(
                 isPlaying = state.isPlaying,
+                playbackStartMeasure = state.playbackStartMeasure,
+                currentMeasure = state.currentMeasure,
+                lastMeasure = state.changes.lastOrNull()?.startMeasure ?: 0,
                 addEnabled = !state.isPlaying && (
                     state.changes.isEmpty() || state.selectedRowIndex in state.changes.indices
                 ),
                 playbackEnabled = state.changes.isNotEmpty(),
                 onAdd = onAddChange,
                 onTogglePlayback = onTogglePlayback,
+                onPlayFromMeasure = onPlayFromMeasure,
             )
         },
     ) { contentPadding ->
@@ -731,53 +746,246 @@ private fun ArrangementRhythmCell(
 @Composable
 private fun ArrangementBottomBar(
     isPlaying: Boolean,
+    playbackStartMeasure: Int,
+    currentMeasure: Int?,
+    lastMeasure: Int,
     addEnabled: Boolean,
     playbackEnabled: Boolean,
     onAdd: () -> Unit,
     onTogglePlayback: () -> Unit,
+    onPlayFromMeasure: (Int) -> Unit,
 ) {
-    Surface(color = MaterialTheme.colorScheme.background) {
+    var measureDrawerExpanded by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(lastMeasure) {
+        if (lastMeasure <= 0) measureDrawerExpanded = false
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.background,
+        shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(52.dp)
+                    .height(24.dp)
+                    .clickable(
+                        enabled = playbackEnabled,
+                        role = Role.Button,
+                        onClick = { measureDrawerExpanded = !measureDrawerExpanded },
+                    )
+                    .semantics {
+                        role = Role.Button
+                        contentDescription = if (measureDrawerExpanded) {
+                            "收起小节菜单"
+                        } else {
+                            "展开小节菜单"
+                        }
+                        stateDescription = if (measureDrawerExpanded) "已展开" else "已收起"
+                    }
+                    .testTag("arrangement_measure_drawer_toggle"),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = if (measureDrawerExpanded) "⌄" else "⌃",
+                    color = if (playbackEnabled) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+
+            AnimatedVisibility(
+                visible = measureDrawerExpanded && playbackEnabled,
+                enter = expandVertically(
+                    expandFrom = Alignment.Bottom,
+                    animationSpec = tween(180),
+                ) + fadeIn(animationSpec = tween(120)),
+                exit = shrinkVertically(
+                    shrinkTowards = Alignment.Bottom,
+                    animationSpec = tween(180),
+                ) + fadeOut(animationSpec = tween(120)),
+            ) {
+                Column {
+                    ArrangementMeasureDrawer(
+                        isPlaying = isPlaying,
+                        playbackStartMeasure = playbackStartMeasure,
+                        currentMeasure = currentMeasure,
+                        lastMeasure = lastMeasure,
+                        onPlayFromMeasure = { measure ->
+                            onPlayFromMeasure(measure)
+                            measureDrawerExpanded = false
+                        },
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Button(
+                    onClick = onAdd,
+                    enabled = addEnabled,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(58.dp)
+                        .testTag("arrangement_add_button"),
+                    shape = RoundedCornerShape(18.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = MaterialTheme.colorScheme.primary,
+                    ),
+                ) {
+                    Text("＋  添加小节", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                }
+                Button(
+                    onClick = onTogglePlayback,
+                    enabled = playbackEnabled,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(58.dp)
+                        .testTag("arrangement_start_stop"),
+                    shape = RoundedCornerShape(18.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isPlaying) MaterialTheme.colorScheme.surfaceVariant
+                        else MaterialTheme.colorScheme.primary,
+                        contentColor = if (isPlaying) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onPrimary,
+                    ),
+                ) {
+                    Text(
+                        if (isPlaying) "停止" else "开始",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 17.sp,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ArrangementMeasureDrawer(
+    isPlaying: Boolean,
+    playbackStartMeasure: Int,
+    currentMeasure: Int?,
+    lastMeasure: Int,
+    onPlayFromMeasure: (Int) -> Unit,
+) {
+    val gridState = rememberLazyGridState()
+    val safeLastMeasure = lastMeasure.coerceAtLeast(1)
+    val focusedMeasure = (
+        if (isPlaying) currentMeasure ?: playbackStartMeasure else playbackStartMeasure
+    ).coerceIn(1, safeLastMeasure)
+    val rowCount = (safeLastMeasure + MEASURES_PER_ROW - 1) / MEASURES_PER_ROW
+    val gridHeight = (
+        24.dp + 48.dp * rowCount + 8.dp * (rowCount - 1).coerceAtLeast(0)
+    ).coerceAtMost(207.dp)
+
+    LaunchedEffect(focusedMeasure, safeLastMeasure) {
+        val targetIndex = focusedMeasure - 1
+        if (gridState.layoutInfo.visibleItemsInfo.none { it.index == targetIndex }) {
+            gridState.animateScrollToItem(targetIndex)
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 260.dp)
+            .testTag("arrangement_measure_drawer"),
+    ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                .height(52.dp)
+                .padding(horizontal = 18.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Button(
-                onClick = onAdd,
-                enabled = addEnabled,
-                modifier = Modifier
-                    .weight(1f)
-                    .height(58.dp)
-                    .testTag("arrangement_add_button"),
-                shape = RoundedCornerShape(18.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    contentColor = MaterialTheme.colorScheme.primary,
-                ),
-            ) {
-                Text("＋  添加小节", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-            }
-            Button(
-                onClick = onTogglePlayback,
-                enabled = playbackEnabled,
-                modifier = Modifier
-                    .weight(1f)
-                    .height(58.dp)
-                    .testTag("arrangement_start_stop"),
-                shape = RoundedCornerShape(18.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isPlaying) MaterialTheme.colorScheme.surfaceVariant
-                    else MaterialTheme.colorScheme.primary,
-                    contentColor = if (isPlaying) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onPrimary,
-                ),
-            ) {
-                Text(
-                    if (isPlaying) "停止" else "开始",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 17.sp,
-                )
+            Text(
+                text = if (isPlaying) {
+                    "当前：第 $focusedMeasure 小节"
+                } else {
+                    "起播：第 $focusedMeasure 小节"
+                },
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = "共 $safeLastMeasure 小节",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp,
+            )
+        }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(MEASURES_PER_ROW),
+            state = gridState,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(gridHeight),
+            contentPadding = PaddingValues(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            items(
+                count = safeLastMeasure,
+                key = { index -> index + 1 },
+            ) { index ->
+                val measure = index + 1
+                val isCurrent = isPlaying && currentMeasure == measure
+                val isStart = playbackStartMeasure == measure
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .clickable(
+                            role = Role.Button,
+                            onClick = { onPlayFromMeasure(measure) },
+                        )
+                        .semantics {
+                            role = Role.Button
+                            contentDescription = "第 $measure 小节"
+                            selected = isStart
+                            stateDescription = when {
+                                isCurrent && isStart -> "当前播放小节，已选起播小节"
+                                isCurrent -> "当前播放小节"
+                                isStart -> "已选起播小节"
+                                else -> "可选择起播"
+                            }
+                        }
+                        .testTag("arrangement_playback_measure_$measure"),
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (isCurrent) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = if (isCurrent) MaterialTheme.colorScheme.onPrimary
+                    else MaterialTheme.colorScheme.onSurface,
+                    border = BorderStroke(
+                        width = if (isStart) 2.dp else 1.dp,
+                        color = if (isStart) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.outline,
+                    ),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            text = measure.toString(),
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = if (isCurrent || isStart) FontWeight.Bold
+                            else FontWeight.Medium,
+                            fontSize = if (measure < 1_000) 15.sp else 12.sp,
+                        )
+                    }
+                }
             }
         }
     }

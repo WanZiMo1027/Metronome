@@ -27,6 +27,7 @@ interface MetronomeEngine {
 
     fun startArrangement(
         changes: List<ArrangementChange>,
+        startMeasure: Int = 1,
         onPulse: (PulseEvent) -> Unit,
         onError: (Throwable) -> Unit,
     ): Boolean
@@ -82,6 +83,7 @@ class AndroidMetronomeEngine(context: Context) : MetronomeEngine {
         this.settings = settings.sanitized()
         return startWorker(
             arrangement = null,
+            arrangementStartMeasure = 1,
             initialBpm = this.settings.bpm,
             onPulse = onPulse,
             onError = onError,
@@ -91,6 +93,7 @@ class AndroidMetronomeEngine(context: Context) : MetronomeEngine {
     @Synchronized
     override fun startArrangement(
         changes: List<ArrangementChange>,
+        startMeasure: Int,
         onPulse: (PulseEvent) -> Unit,
         onError: (Throwable) -> Unit,
     ): Boolean {
@@ -101,10 +104,13 @@ class AndroidMetronomeEngine(context: Context) : MetronomeEngine {
         if (running) return true
         val safeChanges = sanitizeArrangementChanges(changes)
         if (safeChanges.isEmpty()) return false
+        val safeStartMeasure = startMeasure.coerceIn(1, safeChanges.last().startMeasure)
+        val initialChange = safeChanges.last { it.startMeasure <= safeStartMeasure }
 
         return startWorker(
             arrangement = safeChanges,
-            initialBpm = safeChanges.first().bpm,
+            arrangementStartMeasure = safeStartMeasure,
+            initialBpm = initialChange.bpm,
             onPulse = onPulse,
             onError = onError,
         )
@@ -112,6 +118,7 @@ class AndroidMetronomeEngine(context: Context) : MetronomeEngine {
 
     private fun startWorker(
         arrangement: List<ArrangementChange>?,
+        arrangementStartMeasure: Int,
         initialBpm: Int,
         onPulse: (PulseEvent) -> Unit,
         onError: (Throwable) -> Unit,
@@ -126,6 +133,7 @@ class AndroidMetronomeEngine(context: Context) : MetronomeEngine {
                 runScheduler(
                     generation = generation,
                     arrangement = arrangement,
+                    arrangementStartMeasure = arrangementStartMeasure,
                     onPulse = onPulse,
                     onError = onError,
                 )
@@ -180,6 +188,7 @@ class AndroidMetronomeEngine(context: Context) : MetronomeEngine {
     private fun runScheduler(
         generation: Long,
         arrangement: List<ArrangementChange>?,
+        arrangementStartMeasure: Int,
         onPulse: (PulseEvent) -> Unit,
         onError: (Throwable) -> Unit,
     ) {
@@ -200,6 +209,7 @@ class AndroidMetronomeEngine(context: Context) : MetronomeEngine {
             val renderer = PcmTimelineRenderer(
                 clickSamples = clickSamples,
                 arrangement = arrangement,
+                arrangementStartMeasure = arrangementStartMeasure,
                 settingsProvider = { settings },
                 tempoProvider = { tempoBpm },
                 startFrame = STARTUP_PREROLL_FRAMES,
@@ -404,11 +414,14 @@ class AndroidMetronomeEngine(context: Context) : MetronomeEngine {
 private class PcmTimelineRenderer(
     private val clickSamples: ClickSamples,
     arrangement: List<ArrangementChange>?,
+    arrangementStartMeasure: Int,
     private val settingsProvider: () -> MetronomeSettings,
     private val tempoProvider: () -> Int,
     startFrame: Long,
 ) {
-    private val arrangementSequencer = arrangement?.let(::ArrangementSequencer)
+    private val arrangementSequencer = arrangement?.let {
+        ArrangementSequencer(it, arrangementStartMeasure)
+    }
     private val metronomeSequencer = if (arrangement == null) {
         PulseSequencer(settingsProvider())
     } else {

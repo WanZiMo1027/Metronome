@@ -51,6 +51,7 @@ data class ArrangementUiState(
     val changes: List<ArrangementChange> = emptyList(),
     val presets: List<ArrangementPreset> = emptyList(),
     val selectedRowIndex: Int? = null,
+    val playbackStartMeasure: Int = 1,
     val isPlaying: Boolean = false,
     val currentMeasure: Int? = null,
     val currentRowIndex: Int? = null,
@@ -166,10 +167,14 @@ fun resizeBeatPattern(beat: BeatPattern, divisions: Int): BeatPattern {
     return BeatPattern(retained + List(safeCount - retained.size) { CellSound.NORMAL })
 }
 
-internal class ArrangementSequencer(rawChanges: List<ArrangementChange>) {
+internal class ArrangementSequencer(
+    rawChanges: List<ArrangementChange>,
+    initialMeasure: Int = 1,
+) {
     private val changes = sanitizeArrangementChanges(rawChanges)
-    private var currentMeasure = 1
-    private var currentRowIndex = 0
+    private var currentMeasure = initialMeasure.coerceIn(1, changes.last().startMeasure)
+    private var currentRowIndex = changes.indexOfLast { it.startMeasure <= currentMeasure }
+        .coerceAtLeast(0)
     private var currentBeat = 0
     private var currentSubdivisionIndex = -1
     private var pendingNumberCues = emptyList<NumberCue>()

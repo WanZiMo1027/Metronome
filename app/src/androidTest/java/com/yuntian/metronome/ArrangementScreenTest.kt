@@ -106,6 +106,7 @@ class ArrangementScreenTest {
                 ArrangementScreen(
                     state = state,
                     onTogglePlayback = {},
+                    onPlayFromMeasure = {},
                     onSelectChange = {
                         selectedCallback = it
                         state = state.copy(selectedRowIndex = it)
@@ -186,6 +187,7 @@ class ArrangementScreenTest {
                 ArrangementScreen(
                     state = state,
                     onTogglePlayback = {},
+                    onPlayFromMeasure = {},
                     onSelectChange = {},
                     onAddChange = {},
                     onDeleteChange = {},
@@ -241,8 +243,133 @@ class ArrangementScreenTest {
         assertTrue(savedName!!.length <= 30)
     }
 
+    @Test
+    fun measureDrawerListsMeasuresAndStartsTappedMeasure() {
+        var requestedMeasure: Int? = null
+        val changes = listOf(
+            ArrangementChange(startMeasure = 1),
+            ArrangementChange(startMeasure = 8),
+        )
+        setScreen(
+            state = ArrangementUiState(
+                changes = changes,
+                selectedRowIndex = 0,
+                playbackStartMeasure = 5,
+            ),
+            onPlayFromMeasure = { requestedMeasure = it },
+        )
+
+        composeRule.onNodeWithTag("arrangement_add_button").assertIsDisplayed().assertIsEnabled()
+        composeRule.onNodeWithTag("arrangement_start_stop").assertIsDisplayed().assertIsEnabled()
+        composeRule.onNodeWithTag("arrangement_measure_drawer_toggle").performClick()
+        composeRule.onNodeWithTag("arrangement_measure_drawer").assertIsDisplayed()
+        composeRule.onNodeWithTag("arrangement_add_button").assertIsDisplayed().assertIsEnabled()
+        composeRule.onNodeWithTag("arrangement_start_stop").assertIsDisplayed().assertIsEnabled()
+        composeRule.onNodeWithText("起播：第 5 小节").assertIsDisplayed()
+        composeRule.onNodeWithText("共 8 小节").assertIsDisplayed()
+        composeRule.onNodeWithTag("arrangement_playback_measure_5").assertIsSelected()
+        composeRule.onNodeWithTag("arrangement_playback_measure_8").assertIsDisplayed()
+
+        composeRule.onNodeWithTag("arrangement_playback_measure_7").performClick()
+        composeRule.waitForIdle()
+        assertEquals(7, requestedMeasure)
+        composeRule.onNodeWithTag("arrangement_measure_drawer").assertDoesNotExist()
+        composeRule.onNodeWithTag("arrangement_add_button").assertIsDisplayed().assertIsEnabled()
+        composeRule.onNodeWithTag("arrangement_start_stop").assertIsDisplayed().assertIsEnabled()
+    }
+
+    @Test
+    fun tappingMeasureWhileStoppedTransitionsToPlayingState() {
+        val changes = listOf(
+            ArrangementChange(startMeasure = 1),
+            ArrangementChange(startMeasure = 4),
+        )
+        var requestedMeasure: Int? = null
+        var state by mutableStateOf(
+            ArrangementUiState(
+                changes = changes,
+                selectedRowIndex = 0,
+                playbackStartMeasure = 1,
+            ),
+        )
+
+        composeRule.setContent {
+            MetronomeTheme {
+                ArrangementScreen(
+                    state = state,
+                    onTogglePlayback = {},
+                    onPlayFromMeasure = { measure ->
+                        requestedMeasure = measure
+                        state = state.copy(
+                            playbackStartMeasure = measure,
+                            isPlaying = true,
+                            currentMeasure = measure,
+                            currentRowIndex = changes.indexOfLast { it.startMeasure <= measure },
+                            currentBeat = 1,
+                            currentSubdivisionIndex = 0,
+                            currentSubdivisionCount = 1,
+                        )
+                    },
+                    onSelectChange = {},
+                    onAddChange = {},
+                    onDeleteChange = {},
+                    onSetStartMeasure = { _, _ -> true },
+                    onSetConfiguration = { _, _, _ -> },
+                    onSetBeatDivisions = { _, _, _ -> },
+                    onCycleCell = { _, _, _ -> },
+                    onSavePreset = {},
+                    onApplyPreset = {},
+                    onDeletePreset = {},
+                    onConsumeError = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("开始").assertIsDisplayed()
+        composeRule.onNodeWithTag("arrangement_measure_drawer_toggle").performClick()
+        composeRule.onNodeWithTag("arrangement_playback_measure_3").performClick()
+        composeRule.waitForIdle()
+
+        assertEquals(3, requestedMeasure)
+        composeRule.onNodeWithText("停止").assertIsDisplayed()
+        composeRule.onNodeWithTag("arrangement_measure_drawer").assertDoesNotExist()
+    }
+
+    @Test
+    fun measureDrawerIsDisabledWhenArrangementIsEmpty() {
+        setScreen()
+        composeRule.onNodeWithTag("arrangement_measure_drawer_toggle").assertIsNotEnabled()
+        composeRule.onNodeWithTag("arrangement_add_button").assertIsDisplayed().assertIsEnabled()
+        composeRule.onNodeWithTag("arrangement_start_stop").assertIsDisplayed().assertIsNotEnabled()
+    }
+
+    @Test
+    fun measureDrawerRemainsAvailableDuringPlayback() {
+        setScreen(
+            state = ArrangementUiState(
+                changes = listOf(
+                    ArrangementChange(startMeasure = 1),
+                    ArrangementChange(startMeasure = 12),
+                ),
+                selectedRowIndex = 0,
+                playbackStartMeasure = 5,
+                isPlaying = true,
+                currentMeasure = 12,
+                currentRowIndex = 1,
+                currentBeat = 1,
+                currentSubdivisionIndex = 0,
+                currentSubdivisionCount = 1,
+            ),
+        )
+        composeRule.onNodeWithTag("arrangement_measure_drawer_toggle").performClick()
+        composeRule.onNodeWithText("当前：第 12 小节").assertIsDisplayed()
+        composeRule.onNodeWithTag("arrangement_playback_measure_12").assertIsDisplayed()
+        composeRule.onNodeWithTag("arrangement_playback_measure_5").assertIsSelected()
+    }
+
     private fun setScreen(
         state: ArrangementUiState = ArrangementUiState(),
+        onPlayFromMeasure: (Int) -> Unit = {},
         onSelectChange: (Int) -> Unit = {},
         onAddChange: () -> Unit = {},
         onSetStartMeasure: (Int, Int) -> Boolean = { _, _ -> true },
@@ -256,6 +383,7 @@ class ArrangementScreenTest {
                 ArrangementScreen(
                     state = state,
                     onTogglePlayback = {},
+                    onPlayFromMeasure = onPlayFromMeasure,
                     onSelectChange = onSelectChange,
                     onAddChange = onAddChange,
                     onDeleteChange = {},

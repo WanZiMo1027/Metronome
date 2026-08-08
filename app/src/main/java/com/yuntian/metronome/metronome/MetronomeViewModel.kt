@@ -304,17 +304,36 @@ class MetronomeViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun toggleArrangementPlayback() {
-        if (_arrangementUiState.value.isPlaying) stop() else startArrangement()
+        if (_arrangementUiState.value.isPlaying) {
+            stop()
+        } else {
+            startArrangement(_arrangementUiState.value.playbackStartMeasure)
+        }
     }
 
-    fun startArrangement() {
+    fun playArrangementFromMeasure(startMeasure: Int) {
+        val changes = sanitizeArrangementChanges(_arrangementUiState.value.changes)
+        if (changes.isEmpty() || _uiState.value.isPlaying) return
+        val safeStartMeasure = startMeasure.coerceIn(1, changes.last().startMeasure)
+        // A measure tap is an explicit request for a fresh session. Stopping unconditionally
+        // also clears any engine session whose callback state has already been invalidated.
+        stop()
+        _arrangementUiState.update {
+            it.copy(playbackStartMeasure = safeStartMeasure)
+        }
+        startArrangement(safeStartMeasure)
+    }
+
+    fun startArrangement(startMeasure: Int = _arrangementUiState.value.playbackStartMeasure) {
         val changes = sanitizeArrangementChanges(_arrangementUiState.value.changes)
         if (changes.isEmpty() || _uiState.value.isPlaying || _arrangementUiState.value.isPlaying) {
             return
         }
+        val safeStartMeasure = startMeasure.coerceIn(1, changes.last().startMeasure)
         val generation = ++playbackGeneration
         val started = engine.startArrangement(
             changes = changes,
+            startMeasure = safeStartMeasure,
             onPulse = { event ->
                 viewModelScope.launch {
                     if (generation != playbackGeneration || !_arrangementUiState.value.isPlaying) {
@@ -353,6 +372,7 @@ class MetronomeViewModel(application: Application) : AndroidViewModel(applicatio
             _arrangementUiState.update {
                 it.copy(
                     changes = changes,
+                    playbackStartMeasure = safeStartMeasure,
                     isPlaying = true,
                     currentMeasure = null,
                     currentRowIndex = null,
@@ -499,6 +519,7 @@ class MetronomeViewModel(application: Application) : AndroidViewModel(applicatio
             it.copy(
                 changes = changes,
                 selectedRowIndex = changes.lastIndex.takeIf { index -> index >= 0 },
+                playbackStartMeasure = 1,
             )
         }
         repository.saveArrangementDraft(changes)
@@ -555,8 +576,17 @@ class MetronomeViewModel(application: Application) : AndroidViewModel(applicatio
         val updated = sanitizeArrangementChanges(changes)
         val safeSelection = selectedRowIndex?.takeIf { it in updated.indices }
             ?: updated.lastIndex.takeIf { it >= 0 }
-        _arrangementUiState.update {
-            it.copy(changes = updated, selectedRowIndex = safeSelection)
+        _arrangementUiState.update { state ->
+            val safePlaybackStart = if (updated.isEmpty()) {
+                1
+            } else {
+                state.playbackStartMeasure.coerceIn(1, updated.last().startMeasure)
+            }
+            state.copy(
+                changes = updated,
+                selectedRowIndex = safeSelection,
+                playbackStartMeasure = safePlaybackStart,
+            )
         }
         repository.saveArrangementDraft(updated)
     }
