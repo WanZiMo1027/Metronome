@@ -4,6 +4,7 @@ const val MIN_ARRANGEMENT_NUMERATOR = 1
 const val MAX_ARRANGEMENT_NUMERATOR = 9
 const val MIN_ARRANGEMENT_DENOMINATOR = 1
 const val MAX_ARRANGEMENT_DENOMINATOR = 8
+const val DENOMINATOR_CUE_DELAY_MILLIS = 300L
 
 data class ArrangementMeter(
     val numerator: Int = 4,
@@ -171,6 +172,7 @@ internal class ArrangementSequencer(rawChanges: List<ArrangementChange>) {
     private var currentRowIndex = 0
     private var currentBeat = 0
     private var currentSubdivisionIndex = -1
+    private var pendingNumberCues = emptyList<NumberCue>()
 
     init {
         require(changes.isNotEmpty())
@@ -189,6 +191,7 @@ internal class ArrangementSequencer(rawChanges: List<ArrangementChange>) {
                 currentBeat += 1
                 currentSubdivisionIndex = 0
             } else {
+                val previousMeter = active.meter
                 currentMeasure = if (currentMeasure >= changes.last().startMeasure) {
                     1
                 } else {
@@ -196,6 +199,10 @@ internal class ArrangementSequencer(rawChanges: List<ArrangementChange>) {
                 }
                 currentRowIndex = changes.indexOfLast { it.startMeasure <= currentMeasure }
                     .coerceAtLeast(0)
+                pendingNumberCues = numberCuesForMeterChange(
+                    previousMeter = previousMeter,
+                    nextMeter = changes[currentRowIndex].meter,
+                )
                 currentBeat = 1
                 currentSubdivisionIndex = 0
             }
@@ -213,6 +220,11 @@ internal class ArrangementSequencer(rawChanges: List<ArrangementChange>) {
                 AccentLevel.SUBDIVISION
             }
         }
+        val numberCues = if (currentBeat == 1 && currentSubdivisionIndex == 0) {
+            pendingNumberCues.also { pendingNumberCues = emptyList() }
+        } else {
+            emptyList()
+        }
 
         return PulseEvent(
             beat = currentBeat,
@@ -228,6 +240,23 @@ internal class ArrangementSequencer(rawChanges: List<ArrangementChange>) {
             arrangementMeter = active.meter,
             measureNumber = currentMeasure,
             arrangementRowIndex = currentRowIndex,
+            numberCues = numberCues,
         )
+    }
+
+    private fun numberCuesForMeterChange(
+        previousMeter: ArrangementMeter,
+        nextMeter: ArrangementMeter,
+    ): List<NumberCue> {
+        if (nextMeter == previousMeter) return emptyList()
+
+        return if (nextMeter.denominator != previousMeter.denominator) {
+            listOf(
+                NumberCue(nextMeter.numerator),
+                NumberCue(nextMeter.denominator, DENOMINATOR_CUE_DELAY_MILLIS),
+            )
+        } else {
+            listOf(NumberCue(nextMeter.numerator))
+        }
     }
 }

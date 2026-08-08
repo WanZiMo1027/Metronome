@@ -13,7 +13,7 @@ import kotlinx.coroutines.launch
 class MetronomeViewModel(application: Application) : AndroidViewModel(application) {
     private val repository: MetronomeSettingsRepository =
         SharedPreferencesMetronomeSettingsRepository(application)
-    private val engine: MetronomeEngine = AndroidMetronomeEngine()
+    private val engine: MetronomeEngine = AndroidMetronomeEngine(application.applicationContext)
 
     private val initialSettings = repository.load()
     private val initialArrangementDraft = repository.loadArrangementDraft()
@@ -569,6 +569,6 @@ class MetronomeViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     override fun onCleared() {
-        engine.stop()
+        engine.release()
     }
 }

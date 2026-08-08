@@ -130,6 +130,16 @@ enum class AccentLevel {
     SILENT,
 }
 
+data class NumberCue(
+    val value: Int,
+    val delayMillis: Long = 0L,
+) {
+    init {
+        require(value in 1..11)
+        require(delayMillis >= 0L)
+    }
+}
+
 data class MetronomeSettings(
     val bpm: Int = DEFAULT_BPM,
     val timeSignature: TimeSignature = TimeSignature.FOUR_FOUR,
@@ -160,6 +170,7 @@ data class PulseEvent(
     val arrangementMeter: ArrangementMeter? = null,
     val measureNumber: Int? = null,
     val arrangementRowIndex: Int? = null,
+    val numberCues: List<NumberCue> = emptyList(),
 ) {
     val subdivisionCount: Int
         get() = stepWeights.size
@@ -322,7 +333,9 @@ internal class PulseSequencer(initialSettings: MetronomeSettings) {
             } else {
                 currentSubdivisionIndex = 0
                 if (currentBeat >= activeSettings.timeSignature.beatsPerMeasure) {
-                    activeSettings = requestedSettings.sanitized()
+                    if (requestedSettings != activeSettings) {
+                        activeSettings = requestedSettings.sanitized()
+                    }
                     currentBeat = 1
                 } else {
                     currentBeat += 1
