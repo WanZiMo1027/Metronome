@@ -5,6 +5,7 @@ plugins {
 
 android {
     namespace = "com.yuntian.metronome"
+    ndkVersion = libs.versions.ndk.get()
     compileSdk {
         version = release(37) {
             minorApiLevel = 1
@@ -36,6 +37,11 @@ android {
     }
     buildFeatures {
         compose = true
+    }
+    externalNativeBuild {
+        ndkBuild {
+            path = file("src/main/jni/Android.mk")
+        }
     }
 }
 

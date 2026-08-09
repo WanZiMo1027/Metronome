@@ -60,8 +60,26 @@ data class ArrangementUiState(
     val currentBeat: Int? = null,
     val currentSubdivisionIndex: Int? = null,
     val currentSubdivisionCount: Int? = null,
+    val exportState: ArrangementExportState = ArrangementExportState.Idle,
     val errorMessage: String? = null,
 )
+
+data class ArrangementExportOptions(
+    val includeCountIn: Boolean,
+    val includeNumberCues: Boolean,
+)
+
+sealed interface ArrangementExportState {
+    data object Idle : ArrangementExportState
+    data object ChoosingDestination : ArrangementExportState
+    data class Running(val progress: Float) : ArrangementExportState
+    data object Success : ArrangementExportState
+    data class Failure(val message: String) : ArrangementExportState
+}
+
+val ArrangementExportState.isBusy: Boolean
+    get() = this is ArrangementExportState.ChoosingDestination ||
+        this is ArrangementExportState.Running
 
 fun defaultArrangementPattern(meter: ArrangementMeter): List<BeatPattern> =
     List(meter.sanitized().numerator) { beatIndex ->

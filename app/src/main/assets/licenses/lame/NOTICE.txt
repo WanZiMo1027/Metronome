@@ -1,0 +1,9 @@
+LAME 4.0
+
+LAME is distributed under the GNU Library General Public License version 2.
+The complete upstream source is included in app/src/main/jni/third_party/lame-4.0.
+Project information: https://lame.sourceforge.io/
+
+This application links LAME as a separate shared library (libmp3lame.so).
+See LICENSE.txt and COPYING.txt in this directory for the upstream notices and
+license text.

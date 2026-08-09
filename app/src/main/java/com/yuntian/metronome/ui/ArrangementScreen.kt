@@ -51,6 +51,9 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -58,6 +61,7 @@ import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -77,6 +81,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
@@ -91,9 +96,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuntian.metronome.metronome.ArrangementChange
+import com.yuntian.metronome.metronome.ArrangementExportOptions
+import com.yuntian.metronome.metronome.ArrangementExportState
 import com.yuntian.metronome.metronome.ArrangementMeter
 import com.yuntian.metronome.metronome.ArrangementPreset
 import com.yuntian.metronome.metronome.ArrangementUiState
+import com.yuntian.metronome.metronome.isBusy
+import com.yuntian.metronome.R
 import com.yuntian.metronome.metronome.BeatPattern
 import com.yuntian.metronome.metronome.CellSound
 import com.yuntian.metronome.metronome.MAX_ARRANGEMENT_DENOMINATOR
@@ -105,6 +114,7 @@ import com.yuntian.metronome.metronome.MIN_ARRANGEMENT_NUMERATOR
 import com.yuntian.metronome.metronome.MIN_BPM
 import com.yuntian.metronome.metronome.MIN_CUSTOM_DIVISIONS
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 private val ArrangementRowShape = RoundedCornerShape(18.dp)
 private val ArrangementCellShape = RoundedCornerShape(4.dp)
@@ -127,6 +137,9 @@ fun ArrangementScreen(
     onApplyPreset: (String) -> Unit,
     onDeletePreset: (String) -> Unit,
     onConsumeError: () -> Unit,
+    onRequestExport: (ArrangementExportOptions) -> Unit = {},
+    onCancelExport: () -> Unit = {},
+    onConsumeExportResult: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
@@ -136,11 +149,34 @@ fun ArrangementScreen(
     var showSaveDialog by rememberSaveable { mutableStateOf(false) }
     var overwriteName by rememberSaveable { mutableStateOf<String?>(null) }
     var deletePresetTarget by remember { mutableStateOf<ArrangementPreset?>(null) }
+    var showExportDialog by rememberSaveable { mutableStateOf(false) }
+    var exportCountIn by rememberSaveable { mutableStateOf(state.countInEnabled) }
+    var exportNumberCues by rememberSaveable { mutableStateOf(true) }
+    val exportBusy = state.exportState.isBusy
 
     LaunchedEffect(state.errorMessage) {
         val message = state.errorMessage ?: return@LaunchedEffect
         snackbarHostState.showSnackbar(message, duration = SnackbarDuration.Long)
         onConsumeError()
+    }
+
+    LaunchedEffect(state.exportState) {
+        when (val exportState = state.exportState) {
+            ArrangementExportState.Success -> {
+                snackbarHostState.showSnackbar("MP3 已导出")
+                onConsumeExportResult()
+            }
+
+            is ArrangementExportState.Failure -> {
+                snackbarHostState.showSnackbar(
+                    exportState.message,
+                    duration = SnackbarDuration.Long,
+                )
+                onConsumeExportResult()
+            }
+
+            else -> Unit
+        }
     }
 
     LaunchedEffect(state.isPlaying, state.currentRowIndex) {
@@ -177,8 +213,9 @@ fun ArrangementScreen(
                 lastMeasure = state.changes.lastOrNull()?.startMeasure ?: 0,
                 addEnabled = !state.isPlaying && (
                     state.changes.isEmpty() || state.selectedRowIndex in state.changes.indices
-                ),
-                playbackEnabled = state.changes.isNotEmpty(),
+                ) && !exportBusy,
+                playbackEnabled = state.changes.isNotEmpty() && !exportBusy,
+                interactionLocked = exportBusy,
                 onAdd = onAddChange,
                 onSetCountInEnabled = onSetCountInEnabled,
                 onTogglePlayback = onTogglePlayback,
@@ -198,9 +235,15 @@ fun ArrangementScreen(
             item {
                 ArrangementHeader(
                     presets = state.presets,
-                    canSave = state.changes.isNotEmpty() && !state.isPlaying,
-                    enabled = !state.isPlaying,
+                    canSave = state.changes.isNotEmpty() && !state.isPlaying && !exportBusy,
+                    canExport = state.changes.isNotEmpty() && !state.isPlaying && !exportBusy,
+                    enabled = !state.isPlaying && !exportBusy,
                     onSave = { showSaveDialog = true },
+                    onExport = {
+                        exportCountIn = state.countInEnabled
+                        exportNumberCues = true
+                        showExportDialog = true
+                    },
                     onApplyPreset = onApplyPreset,
                     onRequestDeletePreset = { deletePresetTarget = it },
                 )
@@ -217,7 +260,7 @@ fun ArrangementScreen(
                         rowIndex = rowIndex,
                         change = change,
                         isLast = rowIndex == state.changes.lastIndex,
-                        isPlaying = state.isPlaying,
+                        isPlaying = state.isPlaying || exportBusy,
                         isSelected = state.selectedRowIndex == rowIndex,
                         isActive = state.isPlaying && state.currentRowIndex == rowIndex,
                         isCountIn = state.isCountIn,
@@ -239,6 +282,32 @@ fun ArrangementScreen(
                 }
             }
         }
+    }
+
+    if (showExportDialog) {
+        ArrangementExportDialog(
+            includeCountIn = exportCountIn,
+            includeNumberCues = exportNumberCues,
+            onIncludeCountInChange = { exportCountIn = it },
+            onIncludeNumberCuesChange = { exportNumberCues = it },
+            onDismiss = { showExportDialog = false },
+            onConfirm = {
+                showExportDialog = false
+                onRequestExport(
+                    ArrangementExportOptions(
+                        includeCountIn = exportCountIn,
+                        includeNumberCues = exportNumberCues,
+                    ),
+                )
+            },
+        )
+    }
+
+    (state.exportState as? ArrangementExportState.Running)?.let { exportState ->
+        ArrangementExportProgressDialog(
+            progress = exportState.progress,
+            onCancel = onCancelExport,
+        )
     }
 
     configurationIndex?.let { rowIndex ->
@@ -325,8 +394,10 @@ fun ArrangementScreen(
 private fun ArrangementHeader(
     presets: List<ArrangementPreset>,
     canSave: Boolean,
+    canExport: Boolean,
     enabled: Boolean,
     onSave: () -> Unit,
+    onExport: () -> Unit,
     onApplyPreset: (String) -> Unit,
     onRequestDeletePreset: (ArrangementPreset) -> Unit,
 ) {
@@ -350,6 +421,25 @@ private fun ArrangementHeader(
             onRequestDelete = onRequestDeletePreset,
         )
         Spacer(Modifier.width(4.dp))
+        IconButton(
+            onClick = onExport,
+            enabled = canExport,
+            modifier = Modifier
+                .size(40.dp)
+                .semantics {
+                    role = Role.Button
+                    contentDescription = "导出编排 MP3"
+                }
+                .testTag("arrangement_export_button"),
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.ic_export),
+                contentDescription = null,
+                tint = if (canExport) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
+            )
+        }
+        Spacer(Modifier.width(4.dp))
         Button(
             onClick = onSave,
             enabled = canSave,
@@ -362,6 +452,122 @@ private fun ArrangementHeader(
             Text("保存", fontWeight = FontWeight.Bold, fontSize = 13.sp)
         }
     }
+}
+
+@Composable
+private fun ArrangementExportDialog(
+    includeCountIn: Boolean,
+    includeNumberCues: Boolean,
+    onIncludeCountInChange: (Boolean) -> Unit,
+    onIncludeNumberCuesChange: (Boolean) -> Unit,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("导出 MP3") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("arrangement_export_dialog"),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    "导出完整一轮 · 44.1 kHz 双声道 · 192 kbps",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                ExportOptionRow(
+                    label = "包含预备拍",
+                    checked = includeCountIn,
+                    onCheckedChange = onIncludeCountInChange,
+                    contentDescription = "导出包含预备拍",
+                    testTag = "arrangement_export_count_in_switch",
+                )
+                ExportOptionRow(
+                    label = "包含拍号数字提示",
+                    checked = includeNumberCues,
+                    onCheckedChange = onIncludeNumberCuesChange,
+                    contentDescription = "导出包含拍号数字提示",
+                    testTag = "arrangement_export_number_cues_switch",
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onConfirm,
+                modifier = Modifier.testTag("arrangement_export_confirm"),
+            ) { Text("选择保存位置") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        },
+    )
+}
+
+@Composable
+private fun ExportOptionRow(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    contentDescription: String,
+    testTag: String,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, modifier = Modifier.weight(1f))
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            modifier = Modifier
+                .semantics {
+                    this.contentDescription = contentDescription
+                    stateDescription = if (checked) "已包含" else "未包含"
+                }
+                .testTag(testTag),
+        )
+    }
+}
+
+@Composable
+private fun ArrangementExportProgressDialog(
+    progress: Float,
+    onCancel: () -> Unit,
+) {
+    val safeProgress = progress.coerceIn(0f, 1f)
+    val percentage = (safeProgress * 100).roundToInt()
+    AlertDialog(
+        onDismissRequest = {},
+        title = { Text("正在导出 MP3") },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                LinearProgressIndicator(
+                    progress = { safeProgress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .semantics { stateDescription = "导出中 $percentage%" }
+                        .testTag("arrangement_export_progress"),
+                )
+                Text(
+                    "$percentage%",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onCancel,
+                modifier = Modifier.testTag("arrangement_export_cancel"),
+            ) { Text("取消导出") }
+        },
+    )
 }
 
 @Composable
@@ -760,6 +966,7 @@ private fun ArrangementBottomBar(
     lastMeasure: Int,
     addEnabled: Boolean,
     playbackEnabled: Boolean,
+    interactionLocked: Boolean,
     onAdd: () -> Unit,
     onSetCountInEnabled: (Boolean) -> Unit,
     onTogglePlayback: () -> Unit,
@@ -839,7 +1046,7 @@ private fun ArrangementBottomBar(
 
             CountInControl(
                 checked = countInEnabled,
-                enabled = !isPlaying,
+                enabled = !isPlaying && !interactionLocked,
                 isCountIn = isCountIn,
                 onCheckedChange = onSetCountInEnabled,
                 testTag = "arrangement_count_in_switch",

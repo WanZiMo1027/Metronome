@@ -42,23 +42,7 @@ class AndroidMetronomeEngine(context: Context) : MetronomeEngine {
     }
     private val activeTrack = AtomicReference<AudioTrack?>(null)
     private val clickSamples by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        ClickSamples(
-            downbeat = loadRawPcm16(applicationContext, R.raw.first_beat_pcm),
-            otherBeat = loadRawPcm16(applicationContext, R.raw.other_beat_pcm),
-            numbers = listOf(
-                loadRawPcm16(applicationContext, R.raw.click_number_001_pcm),
-                loadRawPcm16(applicationContext, R.raw.click_number_002_pcm),
-                loadRawPcm16(applicationContext, R.raw.click_number_003_pcm),
-                loadRawPcm16(applicationContext, R.raw.click_number_004_pcm),
-                loadRawPcm16(applicationContext, R.raw.click_number_005_pcm),
-                loadRawPcm16(applicationContext, R.raw.click_number_006_pcm),
-                loadRawPcm16(applicationContext, R.raw.click_number_007_pcm),
-                loadRawPcm16(applicationContext, R.raw.click_number_008_pcm),
-                loadRawPcm16(applicationContext, R.raw.click_number_009_pcm),
-                loadRawPcm16(applicationContext, R.raw.click_number_010_pcm),
-                loadRawPcm16(applicationContext, R.raw.click_number_011_pcm),
-            ),
-        )
+        loadClickSamples(applicationContext)
     }
 
     @Volatile
@@ -624,6 +608,24 @@ private class AudioPresentationClock {
         const val UINT32_HALF_RANGE = 0x8000_0000L
     }
 }
+
+internal fun loadClickSamples(context: Context): ClickSamples = ClickSamples(
+    downbeat = loadRawPcm16(context, R.raw.first_beat_pcm),
+    otherBeat = loadRawPcm16(context, R.raw.other_beat_pcm),
+    numbers = listOf(
+        loadRawPcm16(context, R.raw.click_number_001_pcm),
+        loadRawPcm16(context, R.raw.click_number_002_pcm),
+        loadRawPcm16(context, R.raw.click_number_003_pcm),
+        loadRawPcm16(context, R.raw.click_number_004_pcm),
+        loadRawPcm16(context, R.raw.click_number_005_pcm),
+        loadRawPcm16(context, R.raw.click_number_006_pcm),
+        loadRawPcm16(context, R.raw.click_number_007_pcm),
+        loadRawPcm16(context, R.raw.click_number_008_pcm),
+        loadRawPcm16(context, R.raw.click_number_009_pcm),
+        loadRawPcm16(context, R.raw.click_number_010_pcm),
+        loadRawPcm16(context, R.raw.click_number_011_pcm),
+    ),
+)
 
 private fun loadRawPcm16(context: Context, resourceId: Int): ShortArray {
     val bytes = context.resources.openRawResource(resourceId).use { it.readBytes() }

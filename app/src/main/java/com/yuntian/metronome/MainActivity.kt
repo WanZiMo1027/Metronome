@@ -6,6 +6,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -53,11 +55,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yuntian.metronome.metronome.ArrangementUiState
+import com.yuntian.metronome.metronome.ArrangementExportOptions
 import com.yuntian.metronome.metronome.MetronomeUiState
 import com.yuntian.metronome.metronome.MetronomeViewModel
 import com.yuntian.metronome.ui.ArrangementScreen
 import com.yuntian.metronome.ui.MetronomeScreen
 import com.yuntian.metronome.ui.theme.MetronomeTheme
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     private val metronomeViewModel: MetronomeViewModel by viewModels()
@@ -76,12 +82,16 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStop() {
-        if (!isChangingConfigurations) metronomeViewModel.stop()
+        if (!isChangingConfigurations) {
+            metronomeViewModel.stop()
+            metronomeViewModel.cancelActiveArrangementExport()
+        }
         super.onStop()
     }
 
     override fun onUserLeaveHint() {
         metronomeViewModel.stop()
+        metronomeViewModel.cancelActiveArrangementExport()
         super.onUserLeaveHint()
     }
 }
@@ -94,8 +104,22 @@ fun MetronomeApp(viewModel: MetronomeViewModel? = null) {
         ?: remember { mutableStateOf(MetronomeUiState()) }
     val arrangementState by viewModel?.arrangementUiState?.collectAsStateWithLifecycle()
         ?: remember { mutableStateOf(ArrangementUiState()) }
+    val exportDocumentLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("audio/mpeg"),
+    ) { uri ->
+        if (uri == null) viewModel?.cancelArrangementExport()
+        else viewModel?.exportArrangementTo(uri)
+    }
+    val requestArrangementExport: (ArrangementExportOptions) -> Unit = { options ->
+        if (viewModel?.beginArrangementExport(options) == true) {
+            exportDocumentLauncher.launch(defaultArrangementExportFileName())
+        }
+    }
     val selectDestination: (AppDestination) -> Unit = { destination ->
-        if (destination != currentDestination) viewModel?.stop()
+        if (destination != currentDestination) {
+            viewModel?.stop()
+            viewModel?.cancelActiveArrangementExport()
+        }
         currentDestination = destination
     }
 
@@ -116,6 +140,7 @@ fun MetronomeApp(viewModel: MetronomeViewModel? = null) {
                     state = state,
                     arrangementState = arrangementState,
                     viewModel = viewModel,
+                    onRequestArrangementExport = requestArrangementExport,
                     modifier = Modifier.padding(contentPadding),
                 )
             }
@@ -142,6 +167,7 @@ fun MetronomeApp(viewModel: MetronomeViewModel? = null) {
                     state = state,
                     arrangementState = arrangementState,
                     viewModel = viewModel,
+                    onRequestArrangementExport = requestArrangementExport,
                 )
             }
         }
@@ -221,6 +247,7 @@ private fun DestinationContent(
     state: MetronomeUiState,
     arrangementState: ArrangementUiState,
     viewModel: MetronomeViewModel?,
+    onRequestArrangementExport: (ArrangementExportOptions) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     when (destination) {
@@ -270,6 +297,9 @@ private fun DestinationContent(
             onApplyPreset = { viewModel?.applyArrangementPreset(it) },
             onDeletePreset = { viewModel?.deleteArrangementPreset(it) },
             onConsumeError = { viewModel?.consumeArrangementError() },
+            onRequestExport = onRequestArrangementExport,
+            onCancelExport = { viewModel?.cancelArrangementExport() },
+            onConsumeExportResult = { viewModel?.consumeArrangementExportResult() },
             modifier = modifier,
         )
 
@@ -279,6 +309,9 @@ private fun DestinationContent(
         )
     }
 }
+
+private fun defaultArrangementExportFileName(now: Date = Date()): String =
+    "节拍器编排_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.ROOT).format(now)}.mp3"
 
 private enum class AppDestination(
     val chineseLabel: String,

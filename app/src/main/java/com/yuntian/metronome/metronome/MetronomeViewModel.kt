@@ -1,19 +1,30 @@
 package com.yuntian.metronome.metronome
 
 import android.app.Application
+import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import java.io.File
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlin.coroutines.coroutineContext
 
 class MetronomeViewModel(application: Application) : AndroidViewModel(application) {
     private val repository: MetronomeSettingsRepository =
         SharedPreferencesMetronomeSettingsRepository(application)
     private val engine: MetronomeEngine = AndroidMetronomeEngine(application.applicationContext)
+    private val arrangementExporter = ArrangementMp3Exporter(application.applicationContext)
 
     private val initialSettings = repository.load()
     private val initialArrangementDraft = repository.loadArrangementDraft()
@@ -46,13 +57,28 @@ class MetronomeViewModel(application: Application) : AndroidViewModel(applicatio
     val arrangementUiState: StateFlow<ArrangementUiState> = _arrangementUiState.asStateFlow()
 
     private var playbackGeneration = 0L
+    private var exportJob: Job? = null
+    private var pendingExportOptions: ArrangementExportOptions? = null
+    private var pendingExportChanges: List<ArrangementChange>? = null
+
+    init {
+        viewModelScope.launch(Dispatchers.IO) {
+            application.cacheDir.listFiles { file ->
+                file.name.startsWith(EXPORT_TEMP_PREFIX) && file.extension == "mp3"
+            }?.forEach(File::delete)
+        }
+    }
 
     fun togglePlayback() {
         if (_uiState.value.isPlaying) stop() else start()
     }
 
     fun start() {
-        if (_uiState.value.isPlaying || _arrangementUiState.value.isPlaying) return
+        if (
+            _uiState.value.isPlaying ||
+            _arrangementUiState.value.isPlaying ||
+            _arrangementUiState.value.exportState.isBusy
+        ) return
         val generation = ++playbackGeneration
         val started = engine.start(
             settings = _uiState.value.playbackSettings(),
@@ -214,7 +240,11 @@ class MetronomeViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun setCountInEnabled(enabled: Boolean) {
-        if (_uiState.value.isPlaying || _arrangementUiState.value.isPlaying) return
+        if (
+            _uiState.value.isPlaying ||
+            _arrangementUiState.value.isPlaying ||
+            _arrangementUiState.value.exportState.isBusy
+        ) return
         _uiState.update { it.copy(countInEnabled = enabled) }
         _arrangementUiState.update { it.copy(countInEnabled = enabled) }
         settingsChanged()
@@ -317,7 +347,121 @@ class MetronomeViewModel(application: Application) : AndroidViewModel(applicatio
         settingsChanged(applyTempoImmediately = !_uiState.value.isPlaying)
     }
 
+    fun beginArrangementExport(options: ArrangementExportOptions): Boolean {
+        val state = _arrangementUiState.value
+        val changes = sanitizeArrangementChanges(state.changes)
+        if (
+            changes.isEmpty() ||
+            state.isPlaying ||
+            state.exportState.isBusy ||
+            exportJob?.isActive == true
+        ) {
+            return false
+        }
+        pendingExportOptions = options
+        pendingExportChanges = changes
+        _arrangementUiState.update {
+            it.copy(exportState = ArrangementExportState.ChoosingDestination)
+        }
+        return true
+    }
+
+    fun exportArrangementTo(uri: Uri) {
+        val options = pendingExportOptions ?: return
+        val changes = pendingExportChanges ?: return
+        if (_arrangementUiState.value.exportState !is ArrangementExportState.ChoosingDestination) {
+            return
+        }
+        pendingExportOptions = null
+        pendingExportChanges = null
+        val application = getApplication<Application>()
+        val tempFile = File(
+            application.cacheDir,
+            "$EXPORT_TEMP_PREFIX${UUID.randomUUID()}.mp3",
+        )
+        _arrangementUiState.update {
+            it.copy(exportState = ArrangementExportState.Running(0f))
+        }
+        exportJob = viewModelScope.launch {
+            var completed = false
+            try {
+                arrangementExporter.exportToFile(
+                    rawChanges = changes,
+                    options = options,
+                    outputFile = tempFile,
+                    onProgress = ::updateArrangementExportProgress,
+                )
+                copyExportToDocument(tempFile, uri)
+                completed = true
+                _arrangementUiState.update {
+                    it.copy(exportState = ArrangementExportState.Success)
+                }
+            } catch (cancelled: CancellationException) {
+                _arrangementUiState.update {
+                    it.copy(exportState = ArrangementExportState.Idle)
+                }
+                throw cancelled
+            } catch (_: ArrangementExportTooLongException) {
+                _arrangementUiState.update {
+                    it.copy(
+                        exportState = ArrangementExportState.Failure(
+                            "导出最长支持 60 分钟，请缩短编排",
+                        ),
+                    )
+                }
+            } catch (_: Exception) {
+                _arrangementUiState.update {
+                    it.copy(
+                        exportState = ArrangementExportState.Failure(
+                            "MP3 导出失败，请检查存储空间后重试",
+                        ),
+                    )
+                }
+            } finally {
+                withContext(NonCancellable) {
+                    tempFile.delete()
+                    if (!completed) deleteExportDocument(uri)
+                }
+                exportJob = null
+            }
+        }
+    }
+
+    fun cancelArrangementExport() {
+        when (_arrangementUiState.value.exportState) {
+            ArrangementExportState.ChoosingDestination -> {
+                pendingExportOptions = null
+                pendingExportChanges = null
+                _arrangementUiState.update {
+                    it.copy(exportState = ArrangementExportState.Idle)
+                }
+            }
+
+            is ArrangementExportState.Running -> exportJob?.cancel()
+            else -> Unit
+        }
+    }
+
+    fun cancelActiveArrangementExport() {
+        if (_arrangementUiState.value.exportState is ArrangementExportState.Running) {
+            exportJob?.cancel()
+        }
+    }
+
+    fun consumeArrangementExportResult() {
+        _arrangementUiState.update {
+            when (it.exportState) {
+                ArrangementExportState.Success,
+                is ArrangementExportState.Failure,
+                -> it.copy(exportState = ArrangementExportState.Idle)
+
+                else -> it
+            }
+        }
+    }
+
     fun toggleArrangementPlayback() {
+        if (_arrangementUiState.value.exportState.isBusy) return
         if (_arrangementUiState.value.isPlaying) {
             stop()
         } else {
@@ -326,6 +470,7 @@ class MetronomeViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun playArrangementFromMeasure(startMeasure: Int) {
+        if (_arrangementUiState.value.exportState.isBusy) return
         val changes = sanitizeArrangementChanges(_arrangementUiState.value.changes)
         if (changes.isEmpty() || _uiState.value.isPlaying) return
         val safeStartMeasure = startMeasure.coerceIn(1, changes.last().startMeasure)
@@ -340,7 +485,12 @@ class MetronomeViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun startArrangement(startMeasure: Int = _arrangementUiState.value.playbackStartMeasure) {
         val changes = sanitizeArrangementChanges(_arrangementUiState.value.changes)
-        if (changes.isEmpty() || _uiState.value.isPlaying || _arrangementUiState.value.isPlaying) {
+        if (
+            changes.isEmpty() ||
+            _uiState.value.isPlaying ||
+            _arrangementUiState.value.isPlaying ||
+            _arrangementUiState.value.exportState.isBusy
+        ) {
             return
         }
         val safeStartMeasure = startMeasure.coerceIn(1, changes.last().startMeasure)
@@ -405,14 +555,16 @@ class MetronomeViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun selectArrangementChange(rowIndex: Int) {
         _arrangementUiState.update { state ->
-            if (state.isPlaying || rowIndex !in state.changes.indices) state
+            if (state.isPlaying || state.exportState.isBusy || rowIndex !in state.changes.indices) {
+                state
+            }
             else state.copy(selectedRowIndex = rowIndex)
         }
     }
 
     fun addArrangementChange() {
         val state = _arrangementUiState.value
-        if (state.isPlaying) return
+        if (state.isPlaying || state.exportState.isBusy) return
         if (state.changes.isEmpty()) {
             persistArrangementDraft(listOf(ArrangementChange()), selectedRowIndex = 0)
             return
@@ -511,7 +663,12 @@ class MetronomeViewModel(application: Application) : AndroidViewModel(applicatio
     fun saveArrangementPreset(name: String): Boolean {
         val safeName = name.trim()
         val state = _arrangementUiState.value
-        if (safeName.isEmpty() || state.changes.isEmpty() || state.isPlaying) return false
+        if (
+            safeName.isEmpty() ||
+            state.changes.isEmpty() ||
+            state.isPlaying ||
+            state.exportState.isBusy
+        ) return false
         val existing = state.presets.firstOrNull { it.name.equals(safeName, ignoreCase = true) }
         val preset = ArrangementPreset(
             id = existing?.id ?: UUID.randomUUID().toString(),
@@ -530,7 +687,7 @@ class MetronomeViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun applyArrangementPreset(id: String) {
         val state = _arrangementUiState.value
-        if (state.isPlaying) return
+        if (state.isPlaying || state.exportState.isBusy) return
         val preset = state.presets.firstOrNull { it.id == id } ?: return
         val changes = sanitizeArrangementChanges(preset.changes)
         _arrangementUiState.update {
@@ -544,7 +701,10 @@ class MetronomeViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun deleteArrangementPreset(id: String) {
-        if (_arrangementUiState.value.isPlaying) return
+        if (
+            _arrangementUiState.value.isPlaying ||
+            _arrangementUiState.value.exportState.isBusy
+        ) return
         val updated = _arrangementUiState.value.presets.filterNot { it.id == id }
         _arrangementUiState.update { it.copy(presets = updated) }
         repository.saveArrangementPresets(updated)
@@ -580,12 +740,18 @@ class MetronomeViewModel(application: Application) : AndroidViewModel(applicatio
     private fun updateArrangementDraft(
         transform: (List<ArrangementChange>) -> List<ArrangementChange>,
     ) {
-        if (_arrangementUiState.value.isPlaying) return
+        if (
+            _arrangementUiState.value.isPlaying ||
+            _arrangementUiState.value.exportState.isBusy
+        ) return
         persistArrangementDraft(transform(_arrangementUiState.value.changes))
     }
 
     private fun canEditArrangementRow(state: ArrangementUiState, rowIndex: Int): Boolean =
-        !state.isPlaying && rowIndex in state.changes.indices && state.selectedRowIndex == rowIndex
+        !state.isPlaying &&
+            !state.exportState.isBusy &&
+            rowIndex in state.changes.indices &&
+            state.selectedRowIndex == rowIndex
 
     private fun persistArrangementDraft(
         changes: List<ArrangementChange>,
@@ -609,6 +775,53 @@ class MetronomeViewModel(application: Application) : AndroidViewModel(applicatio
         repository.saveArrangementDraft(updated)
     }
 
+    private fun updateArrangementExportProgress(progress: Float) {
+        _arrangementUiState.update { state ->
+            if (state.exportState is ArrangementExportState.Running) {
+                state.copy(
+                    exportState = ArrangementExportState.Running(progress.coerceIn(0f, 1f)),
+                )
+            } else {
+                state
+            }
+        }
+    }
+
+    private suspend fun copyExportToDocument(source: File, uri: Uri) = withContext(Dispatchers.IO) {
+        val resolver = getApplication<Application>().contentResolver
+        val totalBytes = source.length().coerceAtLeast(1L)
+        source.inputStream().buffered().use { input ->
+            val output = resolver.openOutputStream(uri, "wt")
+                ?: error("Unable to open export destination")
+            output.buffered().use { destination ->
+                val buffer = ByteArray(EXPORT_COPY_BUFFER_BYTES)
+                var copiedBytes = 0L
+                while (true) {
+                    coroutineContext.ensureActive()
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    destination.write(buffer, 0, read)
+                    copiedBytes += read
+                    updateArrangementExportProgress(
+                        EXPORT_ENCODING_PROGRESS +
+                            copiedBytes.toFloat() / totalBytes * EXPORT_COPY_PROGRESS,
+                    )
+                }
+                destination.flush()
+            }
+        }
+        updateArrangementExportProgress(1f)
+    }
+
+    private suspend fun deleteExportDocument(uri: Uri) = withContext(Dispatchers.IO) {
+        val resolver = getApplication<Application>().contentResolver
+        val deleted = runCatching { DocumentsContract.deleteDocument(resolver, uri) }
+            .getOrDefault(false)
+        if (!deleted) {
+            runCatching { resolver.openOutputStream(uri, "wt")?.close() }
+        }
+    }
+
     private fun settingsChanged(applyTempoImmediately: Boolean = true) {
         val settings = _uiState.value.playbackSettings().sanitized()
         repository.save(settings)
@@ -618,5 +831,12 @@ class MetronomeViewModel(application: Application) : AndroidViewModel(applicatio
 
     override fun onCleared() {
         engine.release()
+    }
+
+    private companion object {
+        const val EXPORT_TEMP_PREFIX = "metronome-export-"
+        const val EXPORT_COPY_BUFFER_BYTES = 64 * 1024
+        const val EXPORT_ENCODING_PROGRESS = 0.95f
+        const val EXPORT_COPY_PROGRESS = 0.05f
     }
 }

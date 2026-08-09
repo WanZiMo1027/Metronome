@@ -6,6 +6,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextEquals
@@ -19,6 +21,8 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
 import com.yuntian.metronome.metronome.ArrangementChange
+import com.yuntian.metronome.metronome.ArrangementExportOptions
+import com.yuntian.metronome.metronome.ArrangementExportState
 import com.yuntian.metronome.metronome.ArrangementMeter
 import com.yuntian.metronome.metronome.ArrangementUiState
 import com.yuntian.metronome.metronome.BeatPattern
@@ -426,6 +430,67 @@ class ArrangementScreenTest {
         composeRule.onNodeWithTag("arrangement_playback_measure_5").assertIsSelected()
     }
 
+    @Test
+    fun exportDialogUsesCurrentCountInAndIndependentNumberCueOptions() {
+        var requested: ArrangementExportOptions? = null
+        setScreen(
+            state = ArrangementUiState(
+                changes = listOf(ArrangementChange()),
+                selectedRowIndex = 0,
+                countInEnabled = true,
+            ),
+            onRequestExport = { requested = it },
+        )
+
+        composeRule.onNodeWithTag("arrangement_export_button").performClick()
+        composeRule.onNodeWithTag("arrangement_export_dialog").assertIsDisplayed()
+        composeRule.onNodeWithTag("arrangement_export_count_in_switch").assertIsOn()
+        composeRule.onNodeWithTag("arrangement_export_number_cues_switch").assertIsOn()
+            .performClick()
+        composeRule.onNodeWithTag("arrangement_export_number_cues_switch").assertIsOff()
+        composeRule.onNodeWithTag("arrangement_export_confirm").performClick()
+
+        assertEquals(ArrangementExportOptions(true, false), requested)
+    }
+
+    @Test
+    fun exportIsDisabledForEmptyArrangement() {
+        setScreen()
+        composeRule.onNodeWithTag("arrangement_export_button").assertIsNotEnabled()
+    }
+
+    @Test
+    fun exportIsDisabledDuringPlayback() {
+        setScreen(
+            state = ArrangementUiState(
+                changes = listOf(ArrangementChange()),
+                selectedRowIndex = 0,
+                isPlaying = true,
+            ),
+        )
+        composeRule.onNodeWithTag("arrangement_export_button").assertIsNotEnabled()
+    }
+
+    @Test
+    fun runningExportShowsProgressLocksControlsAndCanBeCancelled() {
+        var cancellations = 0
+        setScreen(
+            state = ArrangementUiState(
+                changes = listOf(ArrangementChange()),
+                selectedRowIndex = 0,
+                exportState = ArrangementExportState.Running(0.42f),
+            ),
+            onCancelExport = { cancellations += 1 },
+        )
+
+        composeRule.onNodeWithTag("arrangement_export_progress").assertIsDisplayed()
+        composeRule.onNodeWithText("42%").assertIsDisplayed()
+        composeRule.onNodeWithTag("arrangement_add_button").assertIsNotEnabled()
+        composeRule.onNodeWithTag("arrangement_start_stop").assertIsNotEnabled()
+        composeRule.onNodeWithTag("arrangement_export_cancel").performClick()
+        assertEquals(1, cancellations)
+    }
+
     private fun setScreen(
         state: ArrangementUiState = ArrangementUiState(),
         onPlayFromMeasure: (Int) -> Unit = {},
@@ -437,6 +502,8 @@ class ArrangementScreenTest {
         onSetBeatDivisions: (Int, Int, Int) -> Unit = { _, _, _ -> },
         onCycleCell: (Int, Int, Int) -> Unit = { _, _, _ -> },
         onSavePreset: (String) -> Unit = {},
+        onRequestExport: (ArrangementExportOptions) -> Unit = {},
+        onCancelExport: () -> Unit = {},
     ) {
         composeRule.setContent {
             MetronomeTheme {
@@ -456,6 +523,8 @@ class ArrangementScreenTest {
                     onApplyPreset = {},
                     onDeletePreset = {},
                     onConsumeError = {},
+                    onRequestExport = onRequestExport,
+                    onCancelExport = onCancelExport,
                 )
             }
         }
